@@ -3,7 +3,6 @@ import pandas as pd
 import geopandas as gpd
 import folium
 from streamlit_folium import st_folium
-from folium.plugins import MarkerCluster, HeatMap
 
 # =========================
 # Carregar dados
@@ -11,12 +10,6 @@ from folium.plugins import MarkerCluster, HeatMap
 df = pd.read_excel("data/imoveis_georreferenciados_novembro.xlsx")
 df.columns = df.columns.str.strip()
 df = df.dropna(subset=["latitude", "longitude"])
-
-gdf_imoveis = gpd.GeoDataFrame(
-    df,
-    geometry=gpd.points_from_xy(df["longitude"], df["latitude"]),
-    crs="EPSG:4326"
-)
 
 gdf_bairros = gpd.read_file("data/municipio_completo.shp")
 gdf_bairros = gdf_bairros.to_crs("EPSG:4326")
@@ -26,24 +19,90 @@ gdf_bairros = gdf_bairros.to_crs("EPSG:4326")
 # =========================
 st.title("🏠 Análise Imobiliária Maringá")
 
-# Filtros
-tipo_imovel = st.selectbox("Selecione o tipo de imóvel:", df["Tipo"].unique())
-faixa_preco = st.slider("Selecione a faixa de preço:",
-                        int(df["Preço"].min()), int(df["Preço"].max()),
-                        (int(df["Preço"].min()), int(df["Preço"].max())))
-
-df_filtrado = df[(df["Tipo"] == tipo_imovel) &
-                 (df["Preço"].between(faixa_preco[0], faixa_preco[1]))]
-
-# Dropdown de mapas
-tipo_mapa = st.selectbox(
-    "Selecione o tipo de mapa:",
-    ["Coroplético", "Pontos", "Cluster", "Calor"]
+tipo_estatistica = st.selectbox("Selecione a estatística:",
+    [
+        "Preço médio total",
+        "Preço médio por m²",
+        "Preço médio apartamentos",
+        "Preço médio por m² apartamentos",
+        "Preço médio casas",
+        "Preço médio por m² casas",
+        "Preço médio condomínios",
+        "Preço médio por m² condomínios"
+    ]
 )
 
+tipo_mapa = st.selectbox("Selecione o tipo de mapa:", ["Coroplético", "Pontos", "Cluster", "Calor"])
+
+# =========================
+# Cálculo estatístico
+# =========================
+if "por m²" in tipo_estatistica:
+    df["valor_m2"] = df["Preço"] / df["Área"]
+
+if tipo_estatistica == "Preço médio total":
+    df_filtrado = df.copy()
+    coluna_valor = "Preço"
+elif tipo_estatistica == "Preço médio por m²":
+    df_filtrado = df.copy()
+    coluna_valor = "valor_m2"
+elif "apartamentos" in tipo_estatistica.lower():
+    df_filtrado = df[df["Tipo"].str.lower().str.contains("apartamento")]
+    coluna_valor = "valor_m2" if "m²" in tipo_estatistica else "Preço"
+elif "casas" in tipo_estatistica.lower():
+    df_filtrado = df[df["Tipo"].str.lower().str.contains("casa")]
+    coluna_valor = "valor_m2" if "m²" in tipo_estatistica else "Preço"
+elif "condomínios" in tipo_estatistica.lower():
+    df_filtrado = df[df["Tipo"].str.lower().str.contains("condomínio")]
+    coluna_valor = "valor_m2" if "m²" in tipo_estatistica else "Preço"
+
+# =========================
+# Mapa base
+# =========================
 m = folium.Map(location=[-23.4205, -51.9331], zoom_start=13)
 
-if tipo_mapa == "Pontos":
+# =========================
+# Mapa Coroplético
+# =========================
+if tipo_mapa == "Coroplético":
+    preco_bairro = df_filtrado.groupby("Bairro")[coluna_valor].agg(["mean", "min", "max"]).reset_index()
+    preco_bairro.columns = ["Bairro", "media", "min", "max"]
+    media_total = df_filtrado[coluna_valor].mean()
+    preco_bairro["variacao"] = ((preco_bairro["media"] - media_total) / media_total) * 100
+
+    gdf_plot = gdf_bairros.merge(preco_bairro, left_on="NOME", right_on="Bairro", how="left")
+
+    bins = [120000, 300000, 500000, 800000, 1000000, 1500000, 2500000, 5000000, 10500000]
+    folium.Choropleth(
+        geo_data=gdf_plot,
+        data=gdf_plot,
+        columns=["NOME", "media"],
+        key_on="feature.properties.NOME",
+        fill_color="YlOrRd",
+        fill_opacity=0.7,
+        line_opacity=0.2,
+        bins=bins,
+        legend_name="Preço médio por bairro (R$)"
+    ).add_to(m)
+
+    for _, row in gdf_plot.iterrows():
+        if pd.notnull(row["media"]):
+            tooltip = f"""
+            <b>{row['NOME']}</b><br>
+            Média: R$ {row['media']:,.0f}<br>
+            Mínimo: R$ {row['min']:,.0f}<br>
+            Máximo: R$ {row['max']:,.0f}<br>
+            Variação: {row['variacao']:.1f}%
+            """
+            folium.GeoJson(
+                row["geometry"],
+                tooltip=folium.Tooltip(tooltip, sticky=True)
+            ).add_to(m)
+
+# =========================
+# Mapa Pontos
+# =========================
+elif tipo_mapa == "Pontos":
     for _, row in df_filtrado.iterrows():
         folium.CircleMarker(
             location=[row["latitude"], row["longitude"]],
@@ -55,7 +114,11 @@ if tipo_mapa == "Pontos":
             popup=f"{row['Tipo']} — R$ {row['Preço']:,.2f}"
         ).add_to(m)
 
+# =========================
+# Mapa Cluster
+# =========================
 elif tipo_mapa == "Cluster":
+    from folium.plugins import MarkerCluster
     cluster = MarkerCluster().add_to(m)
     for _, row in df_filtrado.iterrows():
         folium.Marker(
@@ -63,21 +126,14 @@ elif tipo_mapa == "Cluster":
             popup=f"{row['Tipo']} — R$ {row['Preço']:,.2f}"
         ).add_to(cluster)
 
+# =========================
+# Mapa Calor
+# =========================
 elif tipo_mapa == "Calor":
+    from folium.plugins import HeatMap
     HeatMap(df_filtrado[["latitude", "longitude"]].values, radius=15).add_to(m)
 
-elif tipo_mapa == "Coroplético":
-    # Calcula preço médio por bairro
-    preco_medio = df_filtrado.groupby("Bairro")["Preço"].mean().reset_index()
-    folium.Choropleth(
-        geo_data=gdf_bairros,
-        data=preco_medio,
-        columns=["Bairro", "Preço"],
-        key_on="feature.properties.NOME",
-        fill_color="YlOrRd",
-        fill_opacity=0.7,
-        line_opacity=0.2,
-        legend_name="Preço médio por bairro"
-    ).add_to(m)
-
-st_folium(m, width=700, height=500)
+# =========================
+# Exibir mapa
+# =========================
+st_folium(m, width=750, height=550)
