@@ -14,5 +14,4 @@ mgwr
 scikit-learn
 statsmodels
 openpyxl
-
-
+unidecode
