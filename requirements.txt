@@ -1,4 +1,5 @@
 streamlit
+streamlit-folium
 pandas
 numpy
 geopandas
@@ -12,3 +13,4 @@ splot
 mgwr
 scikit-learn
 statsmodels
+
