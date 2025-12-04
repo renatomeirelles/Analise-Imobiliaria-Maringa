@@ -96,7 +96,8 @@ if tipo_mapa == "Coroplético":
     media_total = df_filtrado[coluna_valor].mean()
     preco_bairro["variacao"] = ((preco_bairro["media"] - media_total) / media_total) * 100
 
-    gdf_plot = gdf_bairros.merge(preco_bairro, on="Bairro_norm", how="left")
+    # CORREÇÃO: merge usando colunas normalizadas
+    gdf_plot = gdf_bairros.merge(preco_bairro, left_on="NOME_norm", right_on="Bairro_norm", how="left")
 
     def cor_por_faixa(valor):
         if pd.isna(valor) or valor <= 0:
