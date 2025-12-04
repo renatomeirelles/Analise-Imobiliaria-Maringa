@@ -3,6 +3,7 @@ import pandas as pd
 import geopandas as gpd
 import folium
 from streamlit_folium import st_folium
+import matplotlib.patches as mpatches
 
 # =========================
 # Carregar dados
@@ -13,6 +14,10 @@ df = df.dropna(subset=["latitude", "longitude"])
 
 gdf_bairros = gpd.read_file("data/municipio_completo.shp")
 gdf_bairros = gdf_bairros.to_crs("EPSG:4326")
+
+# Criar coluna valor_m2 se existir Tamanho(m²)
+if "Tamanho(m²)" in df.columns:
+    df["valor_m2"] = df["Preço"] / df["Tamanho(m²)"]
 
 # =========================
 # Interface Streamlit
@@ -36,11 +41,8 @@ tipo_mapa = st.selectbox("Selecione o tipo de mapa:", ["Coroplético", "Pontos",
 estilo_mapa = st.selectbox("Selecione o estilo de fundo:", ["Claro", "Escuro"])
 
 # =========================
-# Cálculo estatístico
+# Filtros e coluna alvo
 # =========================
-if "Área" in df.columns:
-    df["valor_m2"] = df["Preço"] / df["Área"]
-
 if tipo_estatistica == "Preço médio total":
     df_filtrado = df.copy()
     coluna_valor = "Preço"
@@ -73,6 +75,12 @@ tiles = "CartoDB positron" if estilo_mapa == "Claro" else "CartoDB dark_matter"
 m = folium.Map(location=[-23.4205, -51.9331], zoom_start=13, tiles=tiles, control_scale=True)
 
 # =========================
+# Paleta e faixas fixas
+# =========================
+bins = [120000, 300000, 500000, 800000, 1000000, 1500000, 2500000, 5000000, 10500000]
+cores = ['#FF0000', '#FFA500', '#FFFF00', '#00FF00', '#00CED1', '#0000FF', '#8A2BE2', '#FF69B4', '#A52A2A']
+
+# =========================
 # Mapa Coroplético
 # =========================
 if tipo_mapa == "Coroplético":
@@ -83,37 +91,39 @@ if tipo_mapa == "Coroplético":
 
     gdf_plot = gdf_bairros.merge(preco_bairro, left_on="NOME", right_on="Bairro", how="left")
 
-    bins = [120000, 300000, 500000, 800000, 1000000, 1500000, 2500000, 5000000, 10500000]
-    colors = ['#ffffcc','#ffeda0','#fed976','#feb24c','#fd8d3c','#fc4e2a','#e31a1c','#bd0026','#800026']
+    # Aplicar cor manualmente
+    def cor_por_faixa(valor):
+        if pd.isna(valor) or valor <= 0:
+            return "#D3D3D3"
+        for i in range(len(bins)-1):
+            if bins[i] <= valor <= bins[i+1]:
+                return cores[i]
+        return cores[-1]
 
-    choropleth = folium.Choropleth(
-        geo_data=gdf_plot,
-        data=gdf_plot,
-        columns=["NOME", "media"],
-        key_on="feature.properties.NOME",
-        fill_color="YlOrRd",
-        fill_opacity=0.7,
-        line_opacity=0.2,
-        bins=bins,
-        nan_fill_color="gray",
-        legend_name="Preço médio por bairro (R$)",
-        highlight=True
-    )
-    choropleth.add_to(m)
+    gdf_plot["cor"] = gdf_plot["media"].apply(cor_por_faixa)
 
-    for _, row in gdf_plot.iterrows():
-        if pd.notnull(row["media"]):
-            tooltip = f"""
-            <b>{row['NOME']}</b><br>
-            Média: R$ {row['media']:,.0f}<br>
-            Mínimo: R$ {row['min']:,.0f}<br>
-            Máximo: R$ {row['max']:,.0f}<br>
-            Variação: {row['variacao']:.1f}%
-            """
-            folium.GeoJson(
-                row["geometry"],
-                tooltip=folium.Tooltip(tooltip, sticky=True)
-            ).add_to(m)
+    gdf_plot.plot(color=gdf_plot["cor"])
+
+    folium.GeoJson(
+        gdf_plot,
+        style_function=lambda feature: {
+            "fillColor": feature["properties"]["cor"],
+            "color": "white",
+            "weight": 0.5,
+            "fillOpacity": 0.7,
+        },
+        tooltip=folium.GeoJsonTooltip(
+            fields=["NOME", "media", "min", "max", "variacao"],
+            aliases=["Bairro", "Média", "Mínimo", "Máximo", "Variação (%)"],
+            localize=True
+        )
+    ).add_to(m)
+
+    # Legenda manual
+    legendas = [mpatches.Patch(color=cores[i],
+                label=f"{bins[i]:,.0f} a {bins[i+1]:,.0f}") for i in range(len(bins)-1)]
+    legendas.append(mpatches.Patch(color="#D3D3D3", label="Sem dados"))
+    folium.map.LayerControl().add_to(m)
 
 # =========================
 # Mapa Pontos
