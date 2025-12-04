@@ -33,18 +33,19 @@ tipo_estatistica = st.selectbox("Selecione a estatística:",
 )
 
 tipo_mapa = st.selectbox("Selecione o tipo de mapa:", ["Coroplético", "Pontos", "Cluster", "Calor"])
+estilo_mapa = st.selectbox("Selecione o estilo de fundo:", ["Claro", "Escuro"])
 
 # =========================
 # Cálculo estatístico
 # =========================
-if "por m²" in tipo_estatistica:
+if "Área" in df.columns:
     df["valor_m2"] = df["Preço"] / df["Área"]
 
 if tipo_estatistica == "Preço médio total":
     df_filtrado = df.copy()
     coluna_valor = "Preço"
 elif tipo_estatistica == "Preço médio por m²":
-    df_filtrado = df.copy()
+    df_filtrado = df[df["valor_m2"].notnull()]
     coluna_valor = "valor_m2"
 elif "apartamentos" in tipo_estatistica.lower():
     df_filtrado = df[df["Tipo"].str.lower().str.contains("apartamento")]
@@ -57,9 +58,19 @@ elif "condomínios" in tipo_estatistica.lower():
     coluna_valor = "valor_m2" if "m²" in tipo_estatistica else "Preço"
 
 # =========================
+# Exibir resumo estatístico
+# =========================
+num_imoveis = len(df_filtrado)
+media_imoveis = df_filtrado[coluna_valor].mean()
+
+st.markdown(f"**🔢 Imóveis encontrados:** {num_imoveis}")
+st.markdown(f"**📊 Média ({tipo_estatistica}):** R$ {media_imoveis:,.2f}")
+
+# =========================
 # Mapa base
 # =========================
-m = folium.Map(location=[-23.4205, -51.9331], zoom_start=13)
+tiles = "CartoDB positron" if estilo_mapa == "Claro" else "CartoDB dark_matter"
+m = folium.Map(location=[-23.4205, -51.9331], zoom_start=13, tiles=tiles, control_scale=True)
 
 # =========================
 # Mapa Coroplético
@@ -73,7 +84,9 @@ if tipo_mapa == "Coroplético":
     gdf_plot = gdf_bairros.merge(preco_bairro, left_on="NOME", right_on="Bairro", how="left")
 
     bins = [120000, 300000, 500000, 800000, 1000000, 1500000, 2500000, 5000000, 10500000]
-    folium.Choropleth(
+    colors = ['#ffffcc','#ffeda0','#fed976','#feb24c','#fd8d3c','#fc4e2a','#e31a1c','#bd0026','#800026']
+
+    choropleth = folium.Choropleth(
         geo_data=gdf_plot,
         data=gdf_plot,
         columns=["NOME", "media"],
@@ -82,8 +95,11 @@ if tipo_mapa == "Coroplético":
         fill_opacity=0.7,
         line_opacity=0.2,
         bins=bins,
-        legend_name="Preço médio por bairro (R$)"
-    ).add_to(m)
+        nan_fill_color="gray",
+        legend_name="Preço médio por bairro (R$)",
+        highlight=True
+    )
+    choropleth.add_to(m)
 
     for _, row in gdf_plot.iterrows():
         if pd.notnull(row["media"]):
@@ -119,7 +135,7 @@ elif tipo_mapa == "Pontos":
 # =========================
 elif tipo_mapa == "Cluster":
     from folium.plugins import MarkerCluster
-    cluster = MarkerCluster().add_to(m)
+    cluster = MarkerCluster(control=False).add_to(m)
     for _, row in df_filtrado.iterrows():
         folium.Marker(
             location=[row["latitude"], row["longitude"]],
@@ -136,4 +152,4 @@ elif tipo_mapa == "Calor":
 # =========================
 # Exibir mapa
 # =========================
-st_folium(m, width=750, height=550)
+st_folium(m, width=750, height=550, returned_objects=[], use_container_width=True)
