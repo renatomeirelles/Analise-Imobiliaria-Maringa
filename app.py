@@ -4,6 +4,7 @@ import geopandas as gpd
 import folium
 from streamlit_folium import st_folium
 import matplotlib.patches as mpatches
+import unidecode
 
 # =========================
 # Carregar dados
@@ -18,6 +19,12 @@ gdf_bairros = gdf_bairros.to_crs("EPSG:4326")
 # Criar coluna valor_m2 se existir Tamanho(m²)
 if "Tamanho(m²)" in df.columns:
     df["valor_m2"] = df["Preço"] / df["Tamanho(m²)"]
+
+# =========================
+# Normalização dos nomes
+# =========================
+df["Bairro_norm"] = df["Bairro"].str.strip().str.upper().apply(unidecode.unidecode)
+gdf_bairros["NOME_norm"] = gdf_bairros["NOME"].str.strip().str.upper().apply(unidecode.unidecode)
 
 # =========================
 # Interface Streamlit
@@ -84,14 +91,13 @@ cores = ['#FF0000', '#FFA500', '#FFFF00', '#00FF00', '#00CED1', '#0000FF', '#8A2
 # Mapa Coroplético
 # =========================
 if tipo_mapa == "Coroplético":
-    preco_bairro = df_filtrado.groupby("Bairro")[coluna_valor].agg(["mean", "min", "max"]).reset_index()
-    preco_bairro.columns = ["Bairro", "media", "min", "max"]
+    preco_bairro = df_filtrado.groupby("Bairro_norm")[coluna_valor].agg(["mean", "min", "max"]).reset_index()
+    preco_bairro.columns = ["Bairro_norm", "media", "min", "max"]
     media_total = df_filtrado[coluna_valor].mean()
     preco_bairro["variacao"] = ((preco_bairro["media"] - media_total) / media_total) * 100
 
-    gdf_plot = gdf_bairros.merge(preco_bairro, left_on="NOME", right_on="Bairro", how="left")
+    gdf_plot = gdf_bairros.merge(preco_bairro, on="Bairro_norm", how="left")
 
-    # Aplicar cor manualmente
     def cor_por_faixa(valor):
         if pd.isna(valor) or valor <= 0:
             return "#D3D3D3"
@@ -101,8 +107,6 @@ if tipo_mapa == "Coroplético":
         return cores[-1]
 
     gdf_plot["cor"] = gdf_plot["media"].apply(cor_por_faixa)
-
-    gdf_plot.plot(color=gdf_plot["cor"])
 
     folium.GeoJson(
         gdf_plot,
@@ -123,7 +127,6 @@ if tipo_mapa == "Coroplético":
     legendas = [mpatches.Patch(color=cores[i],
                 label=f"{bins[i]:,.0f} a {bins[i+1]:,.0f}") for i in range(len(bins)-1)]
     legendas.append(mpatches.Patch(color="#D3D3D3", label="Sem dados"))
-    folium.map.LayerControl().add_to(m)
 
 # =========================
 # Mapa Pontos
