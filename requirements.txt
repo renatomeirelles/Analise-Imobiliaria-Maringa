@@ -13,4 +13,6 @@ splot
 mgwr
 scikit-learn
 statsmodels
+openpyxl
+
 
