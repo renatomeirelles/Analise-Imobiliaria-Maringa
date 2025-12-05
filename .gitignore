@@ -1,7 +1,19 @@
-
+# Ignora arquivos de cache do Python
 __pycache__/
 *.pyc
+
+# Ignora variáveis de ambiente
 .env
+
+# Ignora checkpoints de notebooks Jupyter
 .ipynb_checkpoints/
+
+# Ignora arquivos geoespaciais específicos dentro da pasta data
 data/*.gpkg
 data/*.geojson
+
+# Permite imagens dentro da pasta data
+!data/*.jpg
+!data/*.jpeg
+!data/*.png
+
