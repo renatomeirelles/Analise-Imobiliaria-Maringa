@@ -50,68 +50,63 @@ faixas_dict = {
 }
 
 # =========================
-# Aparência customizada (fundo com imagem + título com imagem)
+# Aparência customizada
 # =========================
 st.markdown(
-    f"""
+    """
     <style>
-    body {{
-        background-image: url('https://sl.bing.net/gvlnTWe5hxA');
+    body {
+        background-image: url('data/maringa.jpg');
         background-size: cover;
         background-attachment: fixed;
         background-position: center;
         color: #FAFAFA;
-    }}
-    .banner {{
-        background: rgba(0,0,0,0.60);
+    }
+    .banner {
+        background: rgba(0,0,0,0.65);
         padding: 40px;
         border-radius: 10px;
         margin-bottom: 20px;
         text-align: center;
         color: white;
-    }}
-    .banner h1 {{
+    }
+    .banner h1 {
         font-size: 42px;
         font-weight: 800;
         color: #00CED1;
         text-shadow: 2px 2px 4px #000000;
         margin: 0;
-    }}
-    .banner p {{
+    }
+    .banner p {
         margin: 8px 0 0 0;
         font-size: 16px;
         opacity: 0.95;
-    }}
-    .title-row {{
+    }
+    .title-row {
         display: flex;
         align-items: center;
         justify-content: center;
         gap: 12px;
-    }}
-    .sub-metrics {{
+    }
+    .sub-metrics {
         display: flex;
         gap: 16px;
         margin: 10px 0 14px 0;
         flex-wrap: wrap;
-    }}
-    .sub-metric {{
-        background: rgba(38,39,48,0.9);
-        border: 1px solid #3a3a3a;
+    }
+    .sub-metric {
+        background: #ffffff;
+        color: #000000;
+        border: 1px solid #ccc;
         padding: 10px 14px;
         border-radius: 8px;
         font-size: 14px;
-    }}
-    /* Selectboxes com fundo claro no tema escuro */
-    div[data-baseweb="select"] > div {{
-        background-color: #ffffff !important;
-        color: #000000 !important;
-        border-radius: 8px !important;
-    }}
+    }
     </style>
     <div class="banner">
         <div class="title-row">
             <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Line_chart_icon.svg/120px-Line_chart_icon.svg.png" width="54">
-            <h1>Análise Imobiliária Maringá</h1>
+            <h1>Análise Estatística Imobiliária - Maringá</h1>
         </div>
         <p>Estudo estatístico e geográfico dos valores de imóveis</p>
     </div>
