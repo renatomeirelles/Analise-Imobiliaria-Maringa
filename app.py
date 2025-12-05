@@ -3,11 +3,12 @@ import pandas as pd
 import geopandas as gpd
 import folium
 from streamlit_folium import st_folium
+from folium.plugins import MarkerCluster, HeatMap
 
 # =========================
 # Configuração de tiles Jawg Dark
 # =========================
-access_token = "SEU_TOKEN_JAWG_AQUI"  # substitua pelo seu token Jawg
+access_token = "ZK6EgfhFT6px8F8MsRfOp2S5aUMPOvNr5CEEtLmjOYjHDC2MzgI0ZJ1cJjj0C98Y"
 tiles_url = f"https://tile.jawg.io/jawg-dark/{{z}}/{{x}}/{{y}}{{r}}.png?access-token={access_token}"
 attr = '<a href="https://jawg.io" target="_blank">&copy; <b>Jawg</b>Maps</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
 
@@ -49,46 +50,69 @@ faixas_dict = {
 }
 
 # =========================
-# Aparência customizada
+# Aparência customizada (fundo com imagem + título com imagem)
 # =========================
 st.markdown(
-    """
+    f"""
     <style>
-    body {
-        background-color: #0E1117;
-        color: #FAFAFA;
-    }
-    .banner {
-        background-image: url('https://images.unsplash.com/photo-1508923567004-3a6b8004f3d3');
+    body {{
+        background-image: url('https://sl.bing.net/gvlnTWe5hxA');
         background-size: cover;
+        background-attachment: fixed;
         background-position: center;
+        color: #FAFAFA;
+    }}
+    .banner {{
+        background: rgba(0,0,0,0.60);
         padding: 40px;
-        border-radius: 8px;
+        border-radius: 10px;
         margin-bottom: 20px;
         text-align: center;
         color: white;
-    }
-    .banner h1 {
+    }}
+    .banner h1 {{
         font-size: 42px;
-        font-weight: bold;
+        font-weight: 800;
         color: #00CED1;
         text-shadow: 2px 2px 4px #000000;
-    }
-    .sub-metrics {
+        margin: 0;
+    }}
+    .banner p {{
+        margin: 8px 0 0 0;
+        font-size: 16px;
+        opacity: 0.95;
+    }}
+    .title-row {{
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+    }}
+    .sub-metrics {{
         display: flex;
         gap: 16px;
-        margin: 8px 0 12px 0;
-    }
-    .sub-metric {
-        background: #262730;
+        margin: 10px 0 14px 0;
+        flex-wrap: wrap;
+    }}
+    .sub-metric {{
+        background: rgba(38,39,48,0.9);
         border: 1px solid #3a3a3a;
         padding: 10px 14px;
         border-radius: 8px;
         font-size: 14px;
-    }
+    }}
+    /* Selectboxes com fundo claro no tema escuro */
+    div[data-baseweb="select"] > div {{
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        border-radius: 8px !important;
+    }}
     </style>
     <div class="banner">
-        <h1>📈 Análise Imobiliária Maringá</h1>
+        <div class="title-row">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Line_chart_icon.svg/120px-Line_chart_icon.svg.png" width="54">
+            <h1>Análise Imobiliária Maringá</h1>
+        </div>
         <p>Estudo estatístico e geográfico dos valores de imóveis</p>
     </div>
     """,
@@ -113,7 +137,6 @@ tipo_estatistica = st.selectbox(
 )
 
 tipo_mapa = st.selectbox("Selecione o tipo de mapa:", ["Coroplético", "Pontos", "Cluster", "Calor"])
-
 # =========================
 # Filtros e coluna alvo
 # =========================
@@ -154,7 +177,7 @@ elif "condomínios" in tipo_estatistica.lower():
         estatistica_norm = "preco_medio_condominios"
 
 # =========================
-# Exibir resumo estatístico
+# Resumo estatístico
 # =========================
 num_imoveis = len(df_filtrado)
 media_imoveis = df_filtrado[coluna_valor].mean()
@@ -175,30 +198,36 @@ st.markdown(
 m = folium.Map(location=[-23.4205, -51.9331], zoom_start=12, tiles=tiles_url, attr=attr, control_scale=True)
 
 # =========================
-# Escolher faixas corretas
+# Faixas fixas conforme métrica
 # =========================
 bins = faixas_dict.get(estatistica_norm, faixas_base['preco'])
 
 # =========================
-# Mapa Coroplético com spatial join
+# Mapas
 # =========================
 if tipo_mapa == "Coroplético":
+    # GeoDataFrame de imóveis
     gdf_imoveis = gpd.GeoDataFrame(
         df_filtrado,
         geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
         crs="EPSG:4326",
     )
 
+    # Join espacial para obter bairro oficial
     gdf_join = gpd.sjoin(gdf_imoveis, gdf_bairros[["geometry", "NOME"]], how="left", predicate="within")
 
+    # Agregação por bairro
     preco_bairro = gdf_join.groupby("NOME")[coluna_valor].agg(["mean", "min", "max"]).reset_index()
     preco_bairro.columns = ["Bairro", "media", "min", "max"]
 
+    # Variação percentual relativa à média global
     media_total = gdf_join[coluna_valor].mean()
     preco_bairro["variacao"] = ((preco_bairro["media"] - media_total) / media_total) * 100
 
+    # Merge com shapefile
     gdf_plot = gdf_bairros.merge(preco_bairro, left_on="NOME", right_on="Bairro", how="left")
 
+    # Cores por faixa fixa
     def cor_por_faixa(valor):
         if pd.isna(valor) or valor <= 0:
             return "#D3D3D3"
@@ -213,9 +242,9 @@ if tipo_mapa == "Coroplético":
         gdf_plot,
         style_function=lambda feature: {
             "fillColor": feature["properties"]["cor"],
-            "color": "white",
-            "weight": 0.5,
-            "fillOpacity": 0.7,
+            "color": "#f0f0f0",
+            "weight": 0.6,
+            "fillOpacity": 0.75,
         },
         tooltip=folium.GeoJsonTooltip(
             fields=["NOME", "media", "min", "max", "variacao"],
@@ -224,8 +253,8 @@ if tipo_mapa == "Coroplético":
         ),
     ).add_to(m)
 
+    # Legenda lateral
     titulo_legenda = "Faixas de preço por m² (R$)" if "m²" in tipo_estatistica else "Faixas de preço (R$)"
-
     legend_lines = "".join(
         [
             f"<div style='margin:2px 0;'>"
@@ -237,8 +266,8 @@ if tipo_mapa == "Coroplético":
     )
     legenda_html = f"""
     <div style='position: fixed; top: 8px; right: 8px; z-index:9999;
-                background-color:white; padding:10px; border:1px solid gray;
-                font-size:12px; box-shadow:0 1px 4px rgba(0,0,0,0.12); max-width:220px;'>
+                background-color: rgba(255,255,255,0.95); padding:10px; border:1px solid #bbb;
+                font-size:12px; box-shadow:0 1px 4px rgba(0,0,0,0.12); max-width:240px; border-radius:8px;'>
       <div style='font-weight:600; margin-bottom:6px;'>{titulo_legenda}</div>
       {legend_lines}
       <div style='margin:2px 0;'>
@@ -248,26 +277,19 @@ if tipo_mapa == "Coroplético":
     """
     m.get_root().html.add_child(folium.Element(legenda_html))
 
-# =========================
-# Mapa Pontos
-# =========================
 elif tipo_mapa == "Pontos":
     for _, row in df_filtrado.iterrows():
         folium.CircleMarker(
             location=[row["latitude"], row["longitude"]],
             radius=3,
-            color="#3388ff",
+            color="#00CED1",
             fill=True,
-            fill_color="#3388ff",
+            fill_color="#00CED1",
             fill_opacity=0.6,
             popup=f"{row.get('Tipo', 'Imóvel')} — R$ {row['Preço']:,.2f}",
         ).add_to(m)
 
-# =========================
-# Mapa Cluster
-# =========================
 elif tipo_mapa == "Cluster":
-    from folium.plugins import MarkerCluster
     cluster = MarkerCluster(control=False).add_to(m)
     for _, row in df_filtrado.iterrows():
         folium.Marker(
@@ -275,11 +297,7 @@ elif tipo_mapa == "Cluster":
             popup=f"{row.get('Tipo', 'Imóvel')} — R$ {row['Preço']:,.2f}",
         ).add_to(cluster)
 
-# =========================
-# Mapa Calor
-# =========================
 elif tipo_mapa == "Calor":
-    from folium.plugins import HeatMap
     HeatMap(df_filtrado[["latitude", "longitude"]].values, radius=15).add_to(m)
 
 # =========================
