@@ -4,6 +4,34 @@ import geopandas as gpd
 import folium
 from streamlit_folium import st_folium
 from folium.plugins import MarkerCluster, HeatMap
+import base64
+
+# =========================
+# Função para aplicar imagem de fundo via base64
+# =========================
+def get_base64_of_bin_file(bin_file):
+    with open(bin_file, 'rb') as f:
+        data = f.read()
+    return base64.b64encode(data).decode()
+
+def set_background(png_file):
+    bin_str = get_base64_of_bin_file(png_file)
+    st.markdown(
+        f"""
+        <style>
+        .stApp {{
+            background-image: url("data:image/png;base64,{bin_str}");
+            background-size: cover;
+            background-attachment: fixed;
+            background-position: center;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+# Chama logo no início
+set_background("maringa.jpg")
 
 # =========================
 # Configuração de tiles Jawg Dark
@@ -50,65 +78,17 @@ faixas_dict = {
 }
 
 # =========================
-# Aparência customizada (CORRIGIDO)
+# Banner customizado (sem ícone)
 # =========================
 st.markdown(
     """
-    <style>
-    .stApp {
-        background-image: url("maringa.jpg");
-        background-size: cover;
-        background-attachment: fixed;
-        background-position: center;
-        color: #FAFAFA;
-    }
-    .banner {
-        background: rgba(0,0,0,0.65);
-        padding: 40px;
-        border-radius: 10px;
-        margin-bottom: 20px;
-        text-align: center;
-        color: white;
-    }
-    .banner h1 {
-        font-size: 42px;
-        font-weight: 800;
-        color: #00CED1;
-        text-shadow: 2px 2px 4px #000000;
-        margin: 0;
-    }
-    .banner p {
-        margin: 8px 0 0 0;
-        font-size: 16px;
-        opacity: 0.95;
-    }
-    .title-row {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 12px;
-    }
-    .sub-metrics {
-        display: flex;
-        gap: 16px;
-        margin: 10px 0 14px 0;
-        flex-wrap: wrap;
-    }
-    .sub-metric {
-        background: #ffffff;
-        color: #000000;
-        border: 1px solid #ccc;
-        padding: 10px 14px;
-        border-radius: 8px;
-        font-size: 14px;
-    }
-    </style>
-    <div class="banner">
-        <div class="title-row">
-            <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Line_chart_icon.svg/120px-Line_chart_icon.svg.png" width="54">
-            <h1>Análise Estatística Imobiliária - Maringá</h1>
-        </div>
-        <p>Estudo estatístico e geográfico dos valores de imóveis</p>
+    <div class="banner" style="background: rgba(0,0,0,0.65); padding: 40px; border-radius: 10px; margin-bottom: 20px; text-align: center; color: white;">
+        <h1 style="font-size:42px; font-weight:800; color:#00CED1; text-shadow:2px 2px 4px #000000; margin:0;">
+            Análise Estatística Imobiliária - Maringá
+        </h1>
+        <p style="margin:8px 0 0 0; font-size:16px; opacity:0.95;">
+            Estudo estatístico e geográfico dos valores de imóveis
+        </p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -135,7 +115,7 @@ tipo_mapa = st.selectbox("Selecione o tipo de mapa:", ["Coroplético", "Pontos",
 # =========================
 # Filtros e coluna alvo
 # =========================
-estatistica_norm = "preco_medio_total"  # valor padrão para evitar erro
+estatistica_norm = "preco_medio_total"  # valor padrão
 
 if tipo_estatistica == "Preço médio total":
     df_filtrado = df.copy()
@@ -181,9 +161,13 @@ media_imoveis = df_filtrado[coluna_valor].mean()
 
 st.markdown(
     f"""
-    <div class="sub-metrics">
-      <div class="sub-metric">🔢 Imóveis encontrados: <b>{num_imoveis}</b></div>
-      <div class="sub-metric">📊 Média ({tipo_estatistica}): <b>R$ {media_imoveis:,.2f}</b></div>
+    <div class="sub-metrics" style="display:flex; gap:16px; margin:10px 0 14px 0; flex-wrap:wrap;">
+      <div class="sub-metric" style="background:#ffffff; color:#000000; border:1px solid #ccc; padding:10px 14px; border-radius:8px; font-size:14px;">
+        🔢 Imóveis encontrados: <b>{num_imoveis}</b>
+      </div>
+      <div class="sub-metric" style="background:#ffffff; color:#000000; border:1px solid #ccc; padding:10px 14px; border-radius:8px; font-size:14px;">
+        📊 Média ({tipo_estatistica}): <b>R$ {media_imoveis:,.2f}</b>
+      </div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -198,7 +182,6 @@ m = folium.Map(location=[-23.4205, -51.9331], zoom_start=12, tiles=tiles_url, at
 # Faixas fixas conforme métrica
 # =========================
 bins = faixas_dict.get(estatistica_norm, faixas_base['preco'])
-
 # =========================
 # Mapas
 # =========================
