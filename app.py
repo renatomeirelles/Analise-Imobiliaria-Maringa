@@ -4,7 +4,6 @@ import geopandas as gpd
 import folium
 from streamlit_folium import st_folium
 import matplotlib.patches as mpatches
-import unidecode
 
 # =========================
 # Carregar dados
@@ -19,12 +18,6 @@ gdf_bairros = gdf_bairros.to_crs("EPSG:4326")
 # Criar coluna valor_m2 se existir Tamanho(m²)
 if "Tamanho(m²)" in df.columns:
     df["valor_m2"] = df["Preço"] / df["Tamanho(m²)"]
-
-# =========================
-# Normalização dos nomes
-# =========================
-df["Bairro_norm"] = df["Bairro"].str.strip().str.upper().apply(unidecode.unidecode)
-gdf_bairros["NOME_norm"] = gdf_bairros["NOME"].str.strip().str.upper().apply(unidecode.unidecode)
 
 # =========================
 # Interface Streamlit
@@ -88,16 +81,27 @@ bins = [120000, 300000, 500000, 800000, 1000000, 1500000, 2500000, 5000000, 1050
 cores = ['#FF0000', '#FFA500', '#FFFF00', '#00FF00', '#00CED1', '#0000FF', '#8A2BE2', '#FF69B4', '#A52A2A']
 
 # =========================
-# Mapa Coroplético
+# Mapa Coroplético com spatial join
 # =========================
 if tipo_mapa == "Coroplético":
-    preco_bairro = df_filtrado.groupby("Bairro_norm")[coluna_valor].agg(["mean", "min", "max"]).reset_index()
-    preco_bairro.columns = ["Bairro_norm", "media", "min", "max"]
-    media_total = df_filtrado[coluna_valor].mean()
+    # Converte imóveis em GeoDataFrame
+    gdf_imoveis = gpd.GeoDataFrame(
+        df_filtrado,
+        geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
+        crs="EPSG:4326"
+    )
+
+    # Faz o spatial join: cada imóvel recebe o bairro do shapefile
+    gdf_join = gpd.sjoin(gdf_imoveis, gdf_bairros, how="left", predicate="within")
+
+    # Agrupa pelo bairro oficial do shapefile
+    preco_bairro = gdf_join.groupby("NOME")[coluna_valor].agg(["mean", "min", "max"]).reset_index()
+    preco_bairro.columns = ["Bairro", "media", "min", "max"]
+    media_total = gdf_join[coluna_valor].mean()
     preco_bairro["variacao"] = ((preco_bairro["media"] - media_total) / media_total) * 100
 
-    # CORREÇÃO: merge usando colunas normalizadas
-    gdf_plot = gdf_bairros.merge(preco_bairro, left_on="NOME_norm", right_on="Bairro_norm", how="left")
+    # Junta com shapefile
+    gdf_plot = gdf_bairros.merge(preco_bairro, left_on="NOME", right_on="Bairro", how="left")
 
     def cor_por_faixa(valor):
         if pd.isna(valor) or valor <= 0:
