@@ -5,6 +5,13 @@ import folium
 from streamlit_folium import st_folium
 
 # =========================
+# Configuração de tiles Jawg Dark
+# =========================
+access_token = "SEU_TOKEN_JAWG_AQUI"  # substitua pelo seu token Jawg
+tiles_url = f"https://tile.jawg.io/jawg-dark/{{z}}/{{x}}/{{y}}{{r}}.png?access-token={access_token}"
+attr = '<a href="https://jawg.io" target="_blank">&copy; <b>Jawg</b>Maps</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+
+# =========================
 # Carregar dados
 # =========================
 df = pd.read_excel("data/imoveis_georreferenciados_novembro.xlsx")
@@ -14,7 +21,6 @@ df = df.dropna(subset=["latitude", "longitude"])
 gdf_bairros = gpd.read_file("data/municipio_completo.shp")
 gdf_bairros = gdf_bairros.to_crs("EPSG:4326")
 
-# Criar coluna valor_m2 se existir Tamanho(m²)
 if "Tamanho(m²)" in df.columns:
     df["valor_m2"] = df["Preço"] / df["Tamanho(m²)"]
 
@@ -43,10 +49,43 @@ faixas_dict = {
 }
 
 # =========================
+# Aparência customizada
+# =========================
+st.markdown(
+    """
+    <style>
+    body {
+        background-color: #0E1117;
+        color: #FAFAFA;
+    }
+    .banner {
+        background-image: url('https://images.unsplash.com/photo-1508923567004-3a6b8004f3d3');
+        background-size: cover;
+        background-position: center;
+        padding: 40px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        text-align: center;
+        color: white;
+    }
+    .banner h1 {
+        font-size: 42px;
+        font-weight: bold;
+        color: #00CED1;
+        text-shadow: 2px 2px 4px #000000;
+    }
+    </style>
+    <div class="banner">
+        <h1>📈 Análise Imobiliária Maringá</h1>
+        <p>Estudo estatístico e geográfico dos valores de imóveis</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# =========================
 # Interface Streamlit
 # =========================
-st.title("🏠 Análise Imobiliária Maringá")
-
 tipo_estatistica = st.selectbox(
     "Selecione a estatística:",
     [
@@ -62,7 +101,6 @@ tipo_estatistica = st.selectbox(
 )
 
 tipo_mapa = st.selectbox("Selecione o tipo de mapa:", ["Coroplético", "Pontos", "Cluster", "Calor"])
-estilo_mapa = st.selectbox("Selecione o estilo de fundo:", ["Claro", "Escuro"])
 
 # =========================
 # Filtros e coluna alvo
@@ -109,14 +147,13 @@ elif "condomínios" in tipo_estatistica.lower():
 num_imoveis = len(df_filtrado)
 media_imoveis = df_filtrado[coluna_valor].mean()
 
-st.markdown(f"**🔢 Imóveis encontrados:** {num_imoveis}")
-st.markdown(f"**📊 Média ({tipo_estatistica}):** R$ {media_imoveis:,.2f}")
+st.markdown(f"<h3 style='color:#00CED1;'>🔢 Imóveis encontrados: {num_imoveis}</h3>", unsafe_allow_html=True)
+st.markdown(f"<h3 style='color:#00CED1;'>📊 Média ({tipo_estatistica}): R$ {media_imoveis:,.2f}</h3>", unsafe_allow_html=True)
 
 # =========================
-# Mapa base
+# Mapa base (Jawg Dark)
 # =========================
-tiles = "CartoDB positron" if estilo_mapa == "Claro" else "CartoDB dark_matter"
-m = folium.Map(location=[-23.4205, -51.9331], zoom_start=12, tiles=tiles, control_scale=True)
+m = folium.Map(location=[-23.4205, -51.9331], zoom_start=12, tiles=tiles_url, attr=attr, control_scale=True)
 
 # =========================
 # Escolher faixas corretas
@@ -127,114 +164,22 @@ bins = faixas_dict.get(estatistica_norm, faixas_base['preco'])
 # Mapa Coroplético com spatial join
 # =========================
 if tipo_mapa == "Coroplético":
-    # Converte imóveis filtrados em GeoDataFrame
     gdf_imoveis = gpd.GeoDataFrame(
         df_filtrado,
         geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
         crs="EPSG:4326",
     )
 
-    # Cada imóvel recebe o bairro do shapefile
     gdf_join = gpd.sjoin(gdf_imoveis, gdf_bairros[["geometry", "NOME"]], how="left", predicate="within")
 
-    # Agrega por bairro oficial
     preco_bairro = gdf_join.groupby("NOME")[coluna_valor].agg(["mean", "min", "max"]).reset_index()
     preco_bairro.columns = ["Bairro", "media", "min", "max"]
 
-    # Média global para variação percentual
     media_total = gdf_join[coluna_valor].mean()
     preco_bairro["variacao"] = ((preco_bairro["media"] - media_total) / media_total) * 100
 
-    # Junta com shapefile
     gdf_plot = gdf_bairros.merge(preco_bairro, left_on="NOME", right_on="Bairro", how="left")
 
-    # Função de cor por faixa fixa
     def cor_por_faixa(valor):
         if pd.isna(valor) or valor <= 0:
-            return "#D3D3D3"
-        for i in range(len(bins) - 1):
-            if bins[i] <= valor <= bins[i + 1]:
-                return cores[i]
-        return cores[-1]
-
-    gdf_plot["cor"] = gdf_plot["media"].apply(cor_por_faixa)
-
-    folium.GeoJson(
-        gdf_plot,
-        style_function=lambda feature: {
-            "fillColor": feature["properties"]["cor"],
-            "color": "white",
-            "weight": 0.5,
-            "fillOpacity": 0.7,
-        },
-        tooltip=folium.GeoJsonTooltip(
-            fields=["NOME", "media", "min", "max", "variacao"],
-            aliases=["Bairro", "Média", "Mínimo", "Máximo", "Variação (%)"],
-            localize=True,
-        ),
-    ).add_to(m)
-
-    # Título da legenda conforme métrica
-    titulo_legenda = "Faixas de preço por m² (R$)" if "m²" in tipo_estatistica else "Faixas de preço (R$)"
-
-    # Legenda HTML lateral (fiel ao notebook)
-    legend_lines = "".join(
-        [
-            f"<div style='margin:2px 0;'>"
-            f"<span style='display:inline-block;width:20px;height:10px;background:{cores[i]};"
-            f"margin-right:5px;border:1px solid #999'></span>{bins[i]:,} – {bins[i+1]:,}"
-            f"</div>"
-            for i in range(len(bins) - 1)
-        ]
-    )
-    legenda_html = f"""
-    <div style='position: fixed; top: 8px; right: 8px; z-index:9999;
-                background-color:white; padding:10px; border:1px solid gray;
-                font-size:12px; box-shadow:0 1px 4px rgba(0,0,0,0.12); max-width:220px;'>
-      <div style='font-weight:600; margin-bottom:6px;'>{titulo_legenda}</div>
-      {legend_lines}
-      <div style='margin:2px 0;'>
-        <span style='display:inline-block;width:20px;height:10px;background:#D3D3D3;margin-right:5px;border:1px solid #999'></span>Sem dados
-      </div>
-    </div>
-    """
-    m.get_root().html.add_child(folium.Element(legenda_html))
-
-# =========================
-# Mapa Pontos
-# =========================
-elif tipo_mapa == "Pontos":
-    for _, row in df_filtrado.iterrows():
-        folium.CircleMarker(
-            location=[row["latitude"], row["longitude"]],
-            radius=3,
-            color="#3388ff",
-            fill=True,
-            fill_color="#3388ff",
-            fill_opacity=0.6,
-            popup=f"{row.get('Tipo', 'Imóvel')} — R$ {row['Preço']:,.2f}",
-        ).add_to(m)
-
-# =========================
-# Mapa Cluster
-# =========================
-elif tipo_mapa == "Cluster":
-    from folium.plugins import MarkerCluster
-    cluster = MarkerCluster(control=False).add_to(m)
-    for _, row in df_filtrado.iterrows():
-        folium.Marker(
-            location=[row["latitude"], row["longitude"]],
-            popup=f"{row.get('Tipo', 'Imóvel')} — R$ {row['Preço']:,.2f}",
-        ).add_to(cluster)
-
-# =========================
-# Mapa Calor
-# =========================
-elif tipo_mapa == "Calor":
-    from folium.plugins import HeatMap
-    HeatMap(df_filtrado[["latitude", "longitude"]].values, radius=15).add_to(m)
-
-# =========================
-# Exibir mapa
-# =========================
-st_folium(m, width=900, height=650, returned_objects=[], use_container_width=True)
+            return "#D3
