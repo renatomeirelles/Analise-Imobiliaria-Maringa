@@ -74,6 +74,18 @@ st.markdown(
         color: #00CED1;
         text-shadow: 2px 2px 4px #000000;
     }
+    .sub-metrics {
+        display: flex;
+        gap: 16px;
+        margin: 8px 0 12px 0;
+    }
+    .sub-metric {
+        background: #262730;
+        border: 1px solid #3a3a3a;
+        padding: 10px 14px;
+        border-radius: 8px;
+        font-size: 14px;
+    }
     </style>
     <div class="banner">
         <h1>📈 Análise Imobiliária Maringá</h1>
@@ -147,8 +159,15 @@ elif "condomínios" in tipo_estatistica.lower():
 num_imoveis = len(df_filtrado)
 media_imoveis = df_filtrado[coluna_valor].mean()
 
-st.markdown(f"<h3 style='color:#00CED1;'>🔢 Imóveis encontrados: {num_imoveis}</h3>", unsafe_allow_html=True)
-st.markdown(f"<h3 style='color:#00CED1;'>📊 Média ({tipo_estatistica}): R$ {media_imoveis:,.2f}</h3>", unsafe_allow_html=True)
+st.markdown(
+    f"""
+    <div class="sub-metrics">
+      <div class="sub-metric">🔢 Imóveis encontrados: <b>{num_imoveis}</b></div>
+      <div class="sub-metric">📊 Média ({tipo_estatistica}): <b>R$ {media_imoveis:,.2f}</b></div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 # =========================
 # Mapa base (Jawg Dark)
@@ -182,4 +201,88 @@ if tipo_mapa == "Coroplético":
 
     def cor_por_faixa(valor):
         if pd.isna(valor) or valor <= 0:
-            return "#D3
+            return "#D3D3D3"
+        for i in range(len(bins) - 1):
+            if bins[i] <= valor <= bins[i + 1]:
+                return cores[i]
+        return cores[-1]
+
+    gdf_plot["cor"] = gdf_plot["media"].apply(cor_por_faixa)
+
+    folium.GeoJson(
+        gdf_plot,
+        style_function=lambda feature: {
+            "fillColor": feature["properties"]["cor"],
+            "color": "white",
+            "weight": 0.5,
+            "fillOpacity": 0.7,
+        },
+        tooltip=folium.GeoJsonTooltip(
+            fields=["NOME", "media", "min", "max", "variacao"],
+            aliases=["Bairro", "Média", "Mínimo", "Máximo", "Variação (%)"],
+            localize=True,
+        ),
+    ).add_to(m)
+
+    titulo_legenda = "Faixas de preço por m² (R$)" if "m²" in tipo_estatistica else "Faixas de preço (R$)"
+
+    legend_lines = "".join(
+        [
+            f"<div style='margin:2px 0;'>"
+            f"<span style='display:inline-block;width:20px;height:10px;background:{cores[i]};"
+            f"margin-right:5px;border:1px solid #999'></span>{bins[i]:,} – {bins[i+1]:,}"
+            f"</div>"
+            for i in range(len(bins) - 1)
+        ]
+    )
+    legenda_html = f"""
+    <div style='position: fixed; top: 8px; right: 8px; z-index:9999;
+                background-color:white; padding:10px; border:1px solid gray;
+                font-size:12px; box-shadow:0 1px 4px rgba(0,0,0,0.12); max-width:220px;'>
+      <div style='font-weight:600; margin-bottom:6px;'>{titulo_legenda}</div>
+      {legend_lines}
+      <div style='margin:2px 0;'>
+        <span style='display:inline-block;width:20px;height:10px;background:#D3D3D3;margin-right:5px;border:1px solid #999'></span>Sem dados
+      </div>
+    </div>
+    """
+    m.get_root().html.add_child(folium.Element(legenda_html))
+
+# =========================
+# Mapa Pontos
+# =========================
+elif tipo_mapa == "Pontos":
+    for _, row in df_filtrado.iterrows():
+        folium.CircleMarker(
+            location=[row["latitude"], row["longitude"]],
+            radius=3,
+            color="#3388ff",
+            fill=True,
+            fill_color="#3388ff",
+            fill_opacity=0.6,
+            popup=f"{row.get('Tipo', 'Imóvel')} — R$ {row['Preço']:,.2f}",
+        ).add_to(m)
+
+# =========================
+# Mapa Cluster
+# =========================
+elif tipo_mapa == "Cluster":
+    from folium.plugins import MarkerCluster
+    cluster = MarkerCluster(control=False).add_to(m)
+    for _, row in df_filtrado.iterrows():
+        folium.Marker(
+            location=[row["latitude"], row["longitude"]],
+            popup=f"{row.get('Tipo', 'Imóvel')} — R$ {row['Preço']:,.2f}",
+        ).add_to(cluster)
+
+# =========================
+# Mapa Calor
+# =========================
+elif tipo_mapa == "Calor":
+    from folium.plugins import HeatMap
+    HeatMap(df_filtrado[["latitude", "longitude"]].values, radius=15).add_to(m)
+
+# =========================
+# Exibir mapa
+# =========================
+st_folium(m, width=900, height=650, returned_objects=[], use_container_width=True)
