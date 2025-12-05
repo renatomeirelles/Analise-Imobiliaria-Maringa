@@ -26,7 +26,7 @@ if "Tamanho(m²)" in df.columns:
     df["valor_m2"] = df["Preço"] / df["Tamanho(m²)"]
 
 # =========================
-# Paleta e faixas (fiel ao notebook)
+# Paleta e faixas
 # =========================
 cores = ['#FF0000', '#FFA500', '#FFFF00', '#00FF00', '#00CED1',
          '#0000FF', '#8A2BE2', '#FF69B4', '#A52A2A']
@@ -50,13 +50,13 @@ faixas_dict = {
 }
 
 # =========================
-# Aparência customizada
+# Aparência customizada (CORRIGIDO)
 # =========================
 st.markdown(
     """
     <style>
-    body {
-        background-image: url('data/maringa.jpg');
+    .stApp {
+        background-image: url("maringa.jpg");
         background-size: cover;
         background-attachment: fixed;
         background-position: center;
@@ -113,85 +113,6 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-
-# =========================
-# Interface Streamlit
-# =========================
-tipo_estatistica = st.selectbox(
-    "Selecione a estatística:",
-    [
-        "Preço médio total",
-        "Preço médio por m²",
-        "Preço médio apartamentos",
-        "Preço médio por m² apartamentos",
-        "Preço médio casas",
-        "Preço médio por m² casas",
-        "Preço médio condomínios",
-        "Preço médio por m² condomínios",
-    ],
-)
-
-tipo_mapa = st.selectbox("Selecione o tipo de mapa:", ["Coroplético", "Pontos", "Cluster", "Calor"])
-# =========================
-# Filtros e coluna alvo
-# =========================
-if tipo_estatistica == "Preço médio total":
-    df_filtrado = df.copy()
-    coluna_valor = "Preço"
-    estatistica_norm = "preco_medio_total"
-elif tipo_estatistica == "Preço médio por m²":
-    df_filtrado = df[df["valor_m2"].notnull()]
-    coluna_valor = "valor_m2"
-    estatistica_norm = "preco_medio_por_m2"
-elif "apartamentos" in tipo_estatistica.lower():
-    df_filtrado = df[df["Tipo"].str.lower().str.contains("apartamento", na=False)]
-    if "m²" in tipo_estatistica:
-        coluna_valor = "valor_m2"
-        df_filtrado = df_filtrado[df_filtrado["valor_m2"].notnull()]
-        estatistica_norm = "preco_medio_por_m2_apartamentos"
-    else:
-        coluna_valor = "Preço"
-        estatistica_norm = "preco_medio_apartamentos"
-elif "casas" in tipo_estatistica.lower():
-    df_filtrado = df[df["Tipo"].str.lower().str.contains("casa", na=False)]
-    if "m²" in tipo_estatistica:
-        coluna_valor = "valor_m2"
-        df_filtrado = df_filtrado[df_filtrado["valor_m2"].notnull()]
-        estatistica_norm = "preco_medio_por_m2_casas"
-    else:
-        coluna_valor = "Preço"
-        estatistica_norm = "preco_medio_casas"
-elif "condomínios" in tipo_estatistica.lower():
-    df_filtrado = df[df["Tipo"].str.lower().str.contains("condomínio", na=False)]
-    if "m²" in tipo_estatistica:
-        coluna_valor = "valor_m2"
-        df_filtrado = df_filtrado[df_filtrado["valor_m2"].notnull()]
-        estatistica_norm = "preco_medio_por_m2_condominios"
-    else:
-        coluna_valor = "Preço"
-        estatistica_norm = "preco_medio_condominios"
-
-# =========================
-# Resumo estatístico
-# =========================
-num_imoveis = len(df_filtrado)
-media_imoveis = df_filtrado[coluna_valor].mean()
-
-st.markdown(
-    f"""
-    <div class="sub-metrics">
-      <div class="sub-metric">🔢 Imóveis encontrados: <b>{num_imoveis}</b></div>
-      <div class="sub-metric">📊 Média ({tipo_estatistica}): <b>R$ {media_imoveis:,.2f}</b></div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-# =========================
-# Mapa base (Jawg Dark)
-# =========================
-m = folium.Map(location=[-23.4205, -51.9331], zoom_start=12, tiles=tiles_url, attr=attr, control_scale=True)
-
 # =========================
 # Faixas fixas conforme métrica
 # =========================
