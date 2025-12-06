@@ -116,7 +116,7 @@ tipo_mapa = st.selectbox("Selecione o tipo de mapa:", ["Coroplético", "Pontos",
 # =========================
 # Filtros e coluna alvo
 # =========================
-estatistica_norm = "preco_medio_total"  # valor padrão
+estatistica_norm = "preco_medio_total"  # valor padrão para evitar erro
 
 if tipo_estatistica == "Preço médio total":
     df_filtrado = df.copy()
@@ -175,10 +175,10 @@ st.markdown(
 )
 
 # =========================
-# Histograma de preços (NOVO)
+# Histograma de preços (CORRIGIDO)
 # =========================
 fig, ax = plt.subplots()
-ax.hist(df_filtrado[coluna_valor], bins=20, color="#00CED1", edgecolor="black")
+ax.hist(df_filtrado[coluna_valor], bins=30, color="#00CED1", edgecolor="black", density=False)
 ax.set_title(f"Distribuição de {tipo_estatistica}")
 ax.set_xlabel("Valor (R$)")
 ax.set_ylabel("Quantidade de imóveis")
@@ -197,22 +197,28 @@ bins = faixas_dict.get(estatistica_norm, faixas_base['preco'])
 # Mapas
 # =========================
 if tipo_mapa == "Coroplético":
+    # GeoDataFrame de imóveis
     gdf_imoveis = gpd.GeoDataFrame(
         df_filtrado,
         geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
         crs="EPSG:4326",
     )
 
+    # Join espacial para obter bairro oficial
     gdf_join = gpd.sjoin(gdf_imoveis, gdf_bairros[["geometry", "NOME"]], how="left", predicate="within")
 
+    # Agregação por bairro
     preco_bairro = gdf_join.groupby("NOME")[coluna_valor].agg(["mean", "min", "max"]).reset_index()
     preco_bairro.columns = ["Bairro", "media", "min", "max"]
 
+    # Variação percentual relativa à média global
     media_total = gdf_join[coluna_valor].mean()
     preco_bairro["variacao"] = ((preco_bairro["media"] - media_total) / media_total) * 100
 
+    # Merge com shapefile
     gdf_plot = gdf_bairros.merge(preco_bairro, left_on="NOME", right_on="Bairro", how="left")
 
+    # Cores por faixa fixa
     def cor_por_faixa(valor):
         if pd.isna(valor) or valor <= 0:
             return "#D3D3D3"
@@ -237,6 +243,30 @@ if tipo_mapa == "Coroplético":
             localize=True,
         ),
     ).add_to(m)
+
+    # Legenda lateral
+    titulo_legenda = "Faixas de preço por m² (R$)" if "m²" in tipo_estatistica else "Faixas de preço (R$)"
+    legend_lines = "".join(
+        [
+            f"<div style='margin:2px 0;'>"
+            f"<span style='display:inline-block;width:20px;height:10px;background:{cores[i]};"
+            f"margin-right:5px;border:1px solid #999'></span>{bins[i]:,} – {bins[i+1]:,}"
+            f"</div>"
+            for i in range(len(bins) - 1)
+        ]
+    )
+    legenda_html = f"""
+    <div style='position: fixed; top: 8px; right: 8px; z-index:9999;
+                background-color: rgba(255,255,255,0.95); padding:10px; border:1px solid #bbb;
+                font-size:12px; box-shadow:0 1px 4px rgba(0,0,0,0.12); max-width:240px; border-radius:8px;'>
+      <div style='font-weight:600; margin-bottom:6px;'>{titulo_legenda}</div>
+      {legend_lines}
+      <div style='margin:2px 0;'>
+        <span style='display:inline-block;width:20px;height:10px;background:#D3D3D3;margin-right:5px;border:1px solid #999'></span>Sem dados
+      </div>
+    </div>
+    """
+    m.get_root().html.add_child(folium.Element(legenda_html))
 
 elif tipo_mapa == "Pontos":
     for _, row in df_filtrado.iterrows():
