@@ -39,6 +39,10 @@ def set_background(png_file):
             padding-bottom: 1rem;
             max-width: 1400px;
         }}
+        label, .stSelectbox label {{
+            color: white !important;
+            font-weight: 600;
+        }}
         </style>
         """,
         unsafe_allow_html=True
@@ -124,8 +128,6 @@ tipo_estatistica = st.selectbox(
     ],
 )
 
-tipo_mapa = st.selectbox("Selecione o tipo de mapa:", ["Coroplético", "Pontos", "Cluster", "Calor"])
-
 # =========================
 # Filtros e coluna alvo
 # =========================
@@ -188,13 +190,19 @@ st.markdown(
 )
 
 # =========================
-# Dropdown de gráficos
+# Layout lado a lado com dropdowns separados
 # =========================
-grafico_tipo = st.selectbox(
-    "Selecione o gráfico:",
-    ["Histograma", "Barras por bairro", "Boxplot por tipo"]
-)
+col1, col2 = st.columns([1.2, 0.8])  # mapa maior, gráfico menor
 
+with col1:
+    tipo_mapa = st.selectbox("Selecione o tipo de mapa:", ["Coroplético", "Pontos", "Cluster", "Calor"])
+
+with col2:
+    grafico_tipo = st.selectbox("Selecione o gráfico:", ["Histograma", "Barras por bairro", "Boxplot por tipo"])
+
+# =========================
+# Gráfico selecionado
+# =========================
 fig = None
 if grafico_tipo == "Histograma":
     fig, ax = plt.subplots(figsize=(6,5))
@@ -224,14 +232,6 @@ elif grafico_tipo == "Boxplot por tipo":
     ax.set_xlabel("Tipo de imóvel")
     ax.set_ylabel("Valor (R$)")
     ax.tick_params(axis="x", rotation=30)
-
-# =========================
-# Layout lado a lado (mapa à esquerda, gráfico à direita)
-# =========================
-col1, col2 = st.columns([1,1])  # agora ambos com o mesmo tamanho
-with col2:
-    if fig:
-        st.pyplot(fig)
 
 # =========================
 # Mapa base (Jawg Dark)
