@@ -116,7 +116,7 @@ tipo_mapa = st.selectbox("Selecione o tipo de mapa:", ["Coroplético", "Pontos",
 # =========================
 # Filtros e coluna alvo
 # =========================
-estatistica_norm = "preco_medio_total"  # valor padrão para evitar erro
+estatistica_norm = "preco_medio_total"  # valor padrão
 
 if tipo_estatistica == "Preço médio total":
     df_filtrado = df.copy()
@@ -175,7 +175,7 @@ st.markdown(
 )
 
 # =========================
-# Histograma de preços por faixas fixas (NOVO)
+# Histograma de preços por faixas fixas
 # =========================
 faixas = faixas_dict.get(estatistica_norm, faixas_base['preco'])
 
@@ -204,28 +204,27 @@ bins = faixas_dict.get(estatistica_norm, faixas_base['preco'])
 # Mapas
 # =========================
 if tipo_mapa == "Coroplético":
-    # GeoDataFrame de imóveis
     gdf_imoveis = gpd.GeoDataFrame(
         df_filtrado,
         geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
         crs="EPSG:4326",
     )
 
-    # Join espacial para obter bairro oficial
-    gdf_join = gpd.sjoin(gdf_imoveis, gdf_bairros[["geometry", "NOME"]], how="left", predicate="within")
+    gdf_join = gpd.sjoin(
+        gdf_imoveis,
+        gdf_bairros[["geometry", "NOME"]],
+        how="left",
+        predicate="within",
+    )
 
-    # Agregação por bairro
     preco_bairro = gdf_join.groupby("NOME")[coluna_valor].agg(["mean", "min", "max"]).reset_index()
     preco_bairro.columns = ["Bairro", "media", "min", "max"]
 
-    # Variação percentual relativa à média global
     media_total = gdf_join[coluna_valor].mean()
     preco_bairro["variacao"] = ((preco_bairro["media"] - media_total) / media_total) * 100
 
-    # Merge com shapefile
     gdf_plot = gdf_bairros.merge(preco_bairro, left_on="NOME", right_on="Bairro", how="left")
 
-    # Cores por faixa fixa
     def cor_por_faixa(valor):
         if pd.isna(valor) or valor <= 0:
             return "#D3D3D3"
@@ -265,7 +264,7 @@ if tipo_mapa == "Coroplético":
     legenda_html = f"""
     <div style='position: fixed; top: 8px; right: 8px; z-index:9999;
                 background-color: rgba(255,255,255,0.95); padding:10px; border:1px solid #bbb;
-                font-size:12px; box-shadow:0 1px 4px rgba(0,0,0,0.12); max-width:240px; border-radius:8px;'>
+                font-size:12px; box-shadow:0 1px 4px rgba(0,0,0,0.12); max-width:260px; border-radius:8px;'>
       <div style='font-weight:600; margin-bottom:6px;'>{titulo_legenda}</div>
       {legend_lines}
       <div style='margin:2px 0;'>
@@ -277,6 +276,8 @@ if tipo_mapa == "Coroplético":
 
 elif tipo_mapa == "Pontos":
     for _, row in df_filtrado.iterrows():
+        valor_popup = row[coluna_valor]
+        rotulo = "Preço por m²" if coluna_valor == "valor_m2" else "Preço"
         folium.CircleMarker(
             location=[row["latitude"], row["longitude"]],
             radius=3,
@@ -284,15 +285,17 @@ elif tipo_mapa == "Pontos":
             fill=True,
             fill_color="#00CED1",
             fill_opacity=0.6,
-            popup=f"{row.get('Tipo', 'Imóvel')} — R$ {row['Preço']:,.2f}",
+            popup=f"{row.get('Tipo', 'Imóvel')} — {rotulo}: R$ {valor_popup:,.2f}",
         ).add_to(m)
 
 elif tipo_mapa == "Cluster":
     cluster = MarkerCluster(control=False).add_to(m)
     for _, row in df_filtrado.iterrows():
+        valor_popup = row[coluna_valor]
+        rotulo = "Preço por m²" if coluna_valor == "valor_m2" else "Preço"
         folium.Marker(
             location=[row["latitude"], row["longitude"]],
-            popup=f"{row.get('Tipo', 'Imóvel')} — R$ {row['Preço']:,.2f}",
+            popup=f"{row.get('Tipo', 'Imóvel')} — {rotulo}: R$ {valor_popup:,.2f}",
         ).add_to(cluster)
 
 elif tipo_mapa == "Calor":
