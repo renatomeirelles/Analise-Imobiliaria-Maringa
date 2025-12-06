@@ -175,24 +175,13 @@ st.markdown(
 )
 
 # =========================
-# Histograma de preços por faixas fixas (CORRIGIDO)
+# Histograma de preços (ANTIGO)
 # =========================
-faixas = faixas_dict.get(estatistica_norm, faixas_base['preco'])
-
 fig, ax = plt.subplots()
-ax.hist(df_filtrado[coluna_valor], bins=faixas, color="#00CED1", edgecolor="black", density=False)
-ax.set_title(f"Distribuição de {tipo_estatistica} por faixas")
-ax.set_xlabel("Faixas de preço (R$)")
+ax.hist(df_filtrado[coluna_valor], bins=30, color="#00CED1", edgecolor="black", density=False)
+ax.set_title(f"Distribuição de {tipo_estatistica}")
+ax.set_xlabel("Valor (R$)")
 ax.set_ylabel("Quantidade de imóveis")
-
-# Ticks no centro de cada faixa e rótulos com os intervalos
-centros = [ (faixas[i] + faixas[i+1]) / 2 for i in range(len(faixas)-1) ]
-rotulos = [ f"{faixas[i]:,} - {faixas[i+1]:,}" for i in range(len(faixas)-1) ]
-
-ax.set_xticks(centros)
-ax.set_xticklabels(rotulos, rotation=45, ha="right")
-fig.tight_layout()
-
 st.pyplot(fig)
 
 # =========================
