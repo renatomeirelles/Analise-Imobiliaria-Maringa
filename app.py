@@ -11,8 +11,9 @@ import base64
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-# Deixa o seaborn com tema mais clean para os gráficos
-sns.set(style="whitegrid")
+# Tema escuro para gráficos
+plt.style.use("dark_background")
+sns.set(style="darkgrid")
 
 # =========================
 # Função para aplicar imagem de fundo via base64
@@ -33,7 +34,6 @@ def set_background(png_file):
             background-attachment: fixed;
             background-position: center;
         }}
-        /* Compacta um pouco os elementos para dar cara de dashboard */
         .block-container {{
             padding-top: 1rem;
             padding-bottom: 1rem;
@@ -64,7 +64,6 @@ df = df.dropna(subset=["latitude", "longitude"])
 gdf_bairros = gpd.read_file("data/municipio_completo.shp")
 gdf_bairros = gdf_bairros.to_crs("EPSG:4326")
 
-# Cria coluna de preço por m² se possível
 if "Tamanho(m²)" in df.columns and (df["Tamanho(m²)"] > 0).any():
     df["valor_m2"] = df["Preço"] / df["Tamanho(m²)"]
 
@@ -93,16 +92,16 @@ faixas_dict = {
 }
 
 # =========================
-# Banner customizado (compacto)
+# Banner customizado (novo título e subtítulo)
 # =========================
 st.markdown(
     """
     <div class="banner" style="background: rgba(0,0,0,0.55); padding: 28px; border-radius: 10px; margin-bottom: 14px; text-align: center; color: white;">
         <h1 style="font-size:36px; font-weight:800; color:#00CED1; text-shadow:2px 2px 4px #000000; margin:0;">
-            Análise Estatística Imobiliária - Maringá
+            Análise Imobiliária – Maringá‑PR
         </h1>
         <p style="margin:6px 0 0 0; font-size:15px; opacity:0.95;">
-            Estudo estatístico e geográfico dos valores de imóveis
+            Análise de dados estatísticos e espaciais da oferta de imóveis residenciais
         </p>
     </div>
     """,
@@ -177,10 +176,10 @@ media_imoveis = df_filtrado[coluna_valor].mean()
 st.markdown(
     f"""
     <div class="sub-metrics" style="display:flex; gap:16px; margin:10px 0 14px 0; flex-wrap:wrap;">
-      <div class="sub-metric" style="background:#ffffff; color:#000000; border:1px solid #ccc; padding:10px 14px; border-radius:8px; font-size:14px;">
+      <div class="sub-metric" style="background:#1e1e1e; color:#ffffff; border:1px solid #444; padding:10px 14px; border-radius:8px; font-size:14px;">
         🔢 Imóveis encontrados: <b>{num_imoveis}</b>
       </div>
-      <div class="sub-metric" style="background:#ffffff; color:#000000; border:1px solid #ccc; padding:10px 14px; border-radius:8px; font-size:14px;">
+      <div class="sub-metric" style="background:#1e1e1e; color:#ffffff; border:1px solid #444; padding:10px 14px; border-radius:8px; font-size:14px;">
         📊 Média ({tipo_estatistica}): <b>R$ {media_imoveis:,.2f}</b>
       </div>
     </div>
@@ -198,14 +197,13 @@ grafico_tipo = st.selectbox(
 
 fig = None
 if grafico_tipo == "Histograma":
-    fig, ax = plt.subplots()
-    ax.hist(df_filtrado[coluna_valor], bins=30, color="#00CED1", edgecolor="black", density=False)
+    fig, ax = plt.subplots(figsize=(6,5))
+    ax.hist(df_filtrado[coluna_valor], bins=30, color="#00CED1", edgecolor="white", density=False)
     ax.set_title(f"Distribuição de {tipo_estatistica}")
     ax.set_xlabel("Valor (R$)")
     ax.set_ylabel("Quantidade de imóveis")
 
 elif grafico_tipo == "Barras por bairro":
-    # Agrupa por bairro
     gdf_imoveis = gpd.GeoDataFrame(
         df_filtrado,
         geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
@@ -213,14 +211,14 @@ elif grafico_tipo == "Barras por bairro":
     )
     gdf_join = gpd.sjoin(gdf_imoveis, gdf_bairros[["geometry", "NOME"]], how="left", predicate="within")
     media_bairro = gdf_join.groupby("NOME")[coluna_valor].mean().sort_values(ascending=False).head(15)
-    fig, ax = plt.subplots(figsize=(6,4))
+    fig, ax = plt.subplots(figsize=(6,5))
     media_bairro.plot(kind="barh", ax=ax, color="#00CED1")
     ax.set_title(f"Média de {tipo_estatistica} por bairro (top 15)")
     ax.set_xlabel("Valor médio (R$)")
     ax.invert_yaxis()
 
 elif grafico_tipo == "Boxplot por tipo":
-    fig, ax = plt.subplots(figsize=(6,4))
+    fig, ax = plt.subplots(figsize=(6,5))
     sns.boxplot(data=df_filtrado, x="Tipo", y=coluna_valor, ax=ax, palette="Set2")
     ax.set_title(f"Distribuição de {tipo_estatistica} por tipo de imóvel")
     ax.set_xlabel("Tipo de imóvel")
@@ -230,10 +228,7 @@ elif grafico_tipo == "Boxplot por tipo":
 # =========================
 # Layout lado a lado (mapa à esquerda, gráfico à direita)
 # =========================
-col1, col2 = st.columns([2,1])
-with col1:
-    # Mapa será renderizado no Bloco 3
-    pass
+col1, col2 = st.columns([1,1])  # agora ambos com o mesmo tamanho
 with col2:
     if fig:
         st.pyplot(fig)
@@ -298,18 +293,18 @@ if tipo_mapa == "Coroplético":
                 "background-color: white; "
                 "border: 1px solid #ccc; "
                 "border-radius: 4px; "
-                "padding: 4px; "
-                "font-size: 11px;"
+                "padding: 3px; "
+                "font-size: 10px;"
             ),
         ),
     ).add_to(m)
 
-    # Legenda lateral
+    # Legenda lateral compacta
     titulo_legenda = "Faixas de preço por m² (R$)" if "m²" in tipo_estatistica else "Faixas de preço (R$)"
     legend_lines = "".join(
         [
             f"<div style='margin:2px 0;'>"
-            f"<span style='display:inline-block;width:18px;height:10px;background:{cores[i]};"
+            f"<span style='display:inline-block;width:16px;height:10px;background:{cores[i]};"
             f"margin-right:5px;border:1px solid #999'></span>{bins[i]:,} – {bins[i+1]:,}"
             f"</div>"
             for i in range(len(bins) - 1)
@@ -317,12 +312,12 @@ if tipo_mapa == "Coroplético":
     )
     legenda_html = f"""
     <div style='position: fixed; bottom: 8px; left: 8px; z-index:9999;
-                background-color: rgba(255,255,255,0.95); padding:8px; border:1px solid #bbb;
-                font-size:11px; box-shadow:0 1px 4px rgba(0,0,0,0.12); max-width:220px; border-radius:6px;'>
+                background-color: rgba(255,255,255,0.9); padding:6px; border:1px solid #bbb;
+                font-size:10px; box-shadow:0 1px 4px rgba(0,0,0,0.12); max-width:200px; border-radius:6px;'>
       <div style='font-weight:600; margin-bottom:4px;'>{titulo_legenda}</div>
       {legend_lines}
       <div style='margin:2px 0;'>
-        <span style='display:inline-block;width:18px;height:10px;background:#D3D3D3;margin-right:5px;border:1px solid #999'></span>Sem dados
+        <span style='display:inline-block;width:16px;height:10px;background:#D3D3D3;margin-right:5px;border:1px solid #999'></span>Sem dados
       </div>
     </div>
     """
