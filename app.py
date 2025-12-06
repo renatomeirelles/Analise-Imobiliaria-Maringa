@@ -1,3 +1,6 @@
+# =========================
+# Imports e configuração
+# =========================
 import streamlit as st
 import pandas as pd
 import geopandas as gpd
@@ -6,6 +9,10 @@ from streamlit_folium import st_folium
 from folium.plugins import MarkerCluster, HeatMap
 import base64
 import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Deixa o seaborn com tema mais clean para os gráficos
+sns.set(style="whitegrid")
 
 # =========================
 # Função para aplicar imagem de fundo via base64
@@ -25,6 +32,12 @@ def set_background(png_file):
             background-size: cover;
             background-attachment: fixed;
             background-position: center;
+        }}
+        /* Compacta um pouco os elementos para dar cara de dashboard */
+        .block-container {{
+            padding-top: 1rem;
+            padding-bottom: 1rem;
+            max-width: 1400px;
         }}
         </style>
         """,
@@ -51,11 +64,12 @@ df = df.dropna(subset=["latitude", "longitude"])
 gdf_bairros = gpd.read_file("data/municipio_completo.shp")
 gdf_bairros = gdf_bairros.to_crs("EPSG:4326")
 
-if "Tamanho(m²)" in df.columns:
+# Cria coluna de preço por m² se possível
+if "Tamanho(m²)" in df.columns and (df["Tamanho(m²)"] > 0).any():
     df["valor_m2"] = df["Preço"] / df["Tamanho(m²)"]
 
 # =========================
-# Paleta e faixas
+# Paleta e faixas para mapa
 # =========================
 cores = ['#FF0000', '#FFA500', '#FFFF00', '#00FF00', '#00CED1',
          '#0000FF', '#8A2BE2', '#FF69B4', '#A52A2A']
@@ -79,15 +93,15 @@ faixas_dict = {
 }
 
 # =========================
-# Banner customizado (sem ícone)
+# Banner customizado (compacto)
 # =========================
 st.markdown(
     """
-    <div class="banner" style="background: rgba(0,0,0,0.65); padding: 40px; border-radius: 10px; margin-bottom: 20px; text-align: center; color: white;">
-        <h1 style="font-size:42px; font-weight:800; color:#00CED1; text-shadow:2px 2px 4px #000000; margin:0;">
+    <div class="banner" style="background: rgba(0,0,0,0.55); padding: 28px; border-radius: 10px; margin-bottom: 14px; text-align: center; color: white;">
+        <h1 style="font-size:36px; font-weight:800; color:#00CED1; text-shadow:2px 2px 4px #000000; margin:0;">
             Análise Estatística Imobiliária - Maringá
         </h1>
-        <p style="margin:8px 0 0 0; font-size:16px; opacity:0.95;">
+        <p style="margin:6px 0 0 0; font-size:15px; opacity:0.95;">
             Estudo estatístico e geográfico dos valores de imóveis
         </p>
     </div>
@@ -175,14 +189,54 @@ st.markdown(
 )
 
 # =========================
-# Histograma de preços (ANTIGO)
+# Dropdown de gráficos
 # =========================
-fig, ax = plt.subplots()
-ax.hist(df_filtrado[coluna_valor], bins=30, color="#00CED1", edgecolor="black", density=False)
-ax.set_title(f"Distribuição de {tipo_estatistica}")
-ax.set_xlabel("Valor (R$)")
-ax.set_ylabel("Quantidade de imóveis")
-st.pyplot(fig)
+grafico_tipo = st.selectbox(
+    "Selecione o gráfico:",
+    ["Histograma", "Barras por bairro", "Boxplot por tipo"]
+)
+
+fig = None
+if grafico_tipo == "Histograma":
+    fig, ax = plt.subplots()
+    ax.hist(df_filtrado[coluna_valor], bins=30, color="#00CED1", edgecolor="black", density=False)
+    ax.set_title(f"Distribuição de {tipo_estatistica}")
+    ax.set_xlabel("Valor (R$)")
+    ax.set_ylabel("Quantidade de imóveis")
+
+elif grafico_tipo == "Barras por bairro":
+    # Agrupa por bairro
+    gdf_imoveis = gpd.GeoDataFrame(
+        df_filtrado,
+        geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
+        crs="EPSG:4326",
+    )
+    gdf_join = gpd.sjoin(gdf_imoveis, gdf_bairros[["geometry", "NOME"]], how="left", predicate="within")
+    media_bairro = gdf_join.groupby("NOME")[coluna_valor].mean().sort_values(ascending=False).head(15)
+    fig, ax = plt.subplots(figsize=(6,4))
+    media_bairro.plot(kind="barh", ax=ax, color="#00CED1")
+    ax.set_title(f"Média de {tipo_estatistica} por bairro (top 15)")
+    ax.set_xlabel("Valor médio (R$)")
+    ax.invert_yaxis()
+
+elif grafico_tipo == "Boxplot por tipo":
+    fig, ax = plt.subplots(figsize=(6,4))
+    sns.boxplot(data=df_filtrado, x="Tipo", y=coluna_valor, ax=ax, palette="Set2")
+    ax.set_title(f"Distribuição de {tipo_estatistica} por tipo de imóvel")
+    ax.set_xlabel("Tipo de imóvel")
+    ax.set_ylabel("Valor (R$)")
+    ax.tick_params(axis="x", rotation=30)
+
+# =========================
+# Layout lado a lado (mapa à esquerda, gráfico à direita)
+# =========================
+col1, col2 = st.columns([2,1])
+with col1:
+    # Mapa será renderizado no Bloco 3
+    pass
+with col2:
+    if fig:
+        st.pyplot(fig)
 
 # =========================
 # Mapa base (Jawg Dark)
@@ -240,27 +294,35 @@ if tipo_mapa == "Coroplético":
             fields=["NOME", "media", "min", "max", "variacao"],
             aliases=["Bairro", "Média", "Mínimo", "Máximo", "Variação (%)"],
             localize=True,
+            style=(
+                "background-color: white; "
+                "border: 1px solid #ccc; "
+                "border-radius: 4px; "
+                "padding: 4px; "
+                "font-size: 11px;"
+            ),
         ),
     ).add_to(m)
 
+    # Legenda lateral
     titulo_legenda = "Faixas de preço por m² (R$)" if "m²" in tipo_estatistica else "Faixas de preço (R$)"
     legend_lines = "".join(
         [
             f"<div style='margin:2px 0;'>"
-            f"<span style='display:inline-block;width:20px;height:10px;background:{cores[i]};"
+            f"<span style='display:inline-block;width:18px;height:10px;background:{cores[i]};"
             f"margin-right:5px;border:1px solid #999'></span>{bins[i]:,} – {bins[i+1]:,}"
             f"</div>"
             for i in range(len(bins) - 1)
         ]
     )
     legenda_html = f"""
-    <div style='position: fixed; top: 8px; right: 8px; z-index:9999;
-                background-color: rgba(255,255,255,0.95); padding:10px; border:1px solid #bbb;
-                font-size:12px; box-shadow:0 1px 4px rgba(0,0,0,0.12); max-width:260px; border-radius:8px;'>
-      <div style='font-weight:600; margin-bottom:6px;'>{titulo_legenda}</div>
+    <div style='position: fixed; bottom: 8px; left: 8px; z-index:9999;
+                background-color: rgba(255,255,255,0.95); padding:8px; border:1px solid #bbb;
+                font-size:11px; box-shadow:0 1px 4px rgba(0,0,0,0.12); max-width:220px; border-radius:6px;'>
+      <div style='font-weight:600; margin-bottom:4px;'>{titulo_legenda}</div>
       {legend_lines}
       <div style='margin:2px 0;'>
-        <span style='display:inline-block;width:20px;height:10px;background:#D3D3D3;margin-right:5px;border:1px solid #999'></span>Sem dados
+        <span style='display:inline-block;width:18px;height:10px;background:#D3D3D3;margin-right:5px;border:1px solid #999'></span>Sem dados
       </div>
     </div>
     """
@@ -294,7 +356,7 @@ elif tipo_mapa == "Calor":
     HeatMap(df_filtrado[["latitude", "longitude"]].values, radius=15).add_to(m)
 
 # =========================
-# Exibir mapa
+# Exibir mapa (na coluna da esquerda)
 # =========================
-st_folium(m, width=900, height=650, returned_objects=[], use_container_width=True)
-
+with col1:
+    st_folium(m, width=700, height=550, returned_objects=[], use_container_width=True)
