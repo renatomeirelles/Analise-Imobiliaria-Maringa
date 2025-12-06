@@ -175,7 +175,7 @@ st.markdown(
 )
 
 # =========================
-# Histograma de preços por faixas fixas
+# Histograma de preços por faixas fixas (CORRIGIDO)
 # =========================
 faixas = faixas_dict.get(estatistica_norm, faixas_base['preco'])
 
@@ -185,9 +185,13 @@ ax.set_title(f"Distribuição de {tipo_estatistica} por faixas")
 ax.set_xlabel("Faixas de preço (R$)")
 ax.set_ylabel("Quantidade de imóveis")
 
-# Ajusta os rótulos do eixo X para mostrar os intervalos
-ax.set_xticks(faixas)
-ax.set_xticklabels([f"{faixas[i]:,} - {faixas[i+1]:,}" for i in range(len(faixas)-1)], rotation=45, ha="right")
+# Ticks no centro de cada faixa e rótulos com os intervalos
+centros = [ (faixas[i] + faixas[i+1]) / 2 for i in range(len(faixas)-1) ]
+rotulos = [ f"{faixas[i]:,} - {faixas[i+1]:,}" for i in range(len(faixas)-1) ]
+
+ax.set_xticks(centros)
+ax.set_xticklabels(rotulos, rotation=45, ha="right")
+fig.tight_layout()
 
 st.pyplot(fig)
 
@@ -250,7 +254,6 @@ if tipo_mapa == "Coroplético":
         ),
     ).add_to(m)
 
-    # Legenda lateral
     titulo_legenda = "Faixas de preço por m² (R$)" if "m²" in tipo_estatistica else "Faixas de preço (R$)"
     legend_lines = "".join(
         [
@@ -305,3 +308,4 @@ elif tipo_mapa == "Calor":
 # Exibir mapa
 # =========================
 st_folium(m, width=900, height=650, returned_objects=[], use_container_width=True)
+
