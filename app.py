@@ -34,15 +34,19 @@ def set_background(png_file):
             background-size: cover;
             background-attachment: fixed;
             background-position: center;
+            overflow: hidden; /* tenta travar scroll */
         }}
         .block-container {{
             padding-top: 0rem;
-            padding-bottom: 1rem;
+            padding-bottom: 0rem;
             max-width: 1400px;
         }}
         label, .stSelectbox label {{
             color: white !important;
             font-weight: 600;
+        }}
+        h3 {{
+            color: white !important;
         }}
         </style>
         """,
@@ -99,13 +103,10 @@ faixas_dict = {
 # =========================
 st.markdown(
     """
-    <div class="banner" style="background: rgba(0,0,0,0.55); padding: 18px; border-radius: 10px; margin-bottom: 10px; text-align: center; color: white;">
-        <h1 style="font-size:28px; font-weight:700; color:#00CED1; text-shadow:1px 1px 3px #000000; margin:0;">
-            Análise Imobiliária – Maringá‑PR
+    <div class="banner" style="background: rgba(0,0,0,0.55); padding: 12px; border-radius: 8px; margin-bottom: 8px; text-align: center; color: white;">
+        <h1 style="font-size:24px; font-weight:700; color:#00CED1; text-shadow:1px 1px 3px #000000; margin:0;">
+            Análise Estatística e Espacial da Oferta de Imóveis Residenciais
         </h1>
-        <p style="margin:4px 0 0 0; font-size:13px; opacity:0.95;">
-            Painel interativo de dados estatísticos e espaciais da oferta de imóveis residenciais
-        </p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -189,160 +190,100 @@ with st.sidebar:
     st.markdown(f"**🔢 Imóveis encontrados:** {num_imoveis}")
     st.markdown(f"**📈 Média ({tipo_estatistica}):** R$ {media_imoveis:,.2f}")
 # =========================
-# Layout lado a lado (mapa + gráfico)
+# Layout vertical (mapa em cima, gráfico embaixo)
 # =========================
-col_mapa, col_grafico = st.columns([1.2, 0.8])
 
-with col_mapa:
-    st.markdown("### 🗺️ Mapa")
+# --- Mapa ---
+st.markdown("### 🗺️ Mapa", unsafe_allow_html=True)
 
-    # Mapa base
-    m = folium.Map(location=[-23.4205, -51.9331], zoom_start=12,
-                   tiles=tiles_url, attr=attr, control_scale=True)
+m = folium.Map(location=[-23.4205, -51.9331], zoom_start=12,
+               tiles=tiles_url, attr=attr, control_scale=True)
 
-    # Faixas fixas conforme métrica
-    bins = faixas_dict.get(estatistica_norm, faixas_base['preco'])
+bins = faixas_dict.get(estatistica_norm, faixas_base['preco'])
 
-    # Tipos de mapa
-    if tipo_mapa == "Coroplético":
-        gdf_imoveis = gpd.GeoDataFrame(
-            df_filtrado,
-            geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
-            crs="EPSG:4326",
-        )
-        gdf_join = gpd.sjoin(
-            gdf_imoveis,
-            gdf_bairros[["geometry", "NOME"]],
-            how="left",
-            predicate="within",
-        )
-        preco_bairro = gdf_join.groupby("NOME")[coluna_valor].agg(["mean", "min", "max"]).reset_index()
-        preco_bairro.columns = ["Bairro", "media", "min", "max"]
+if tipo_mapa == "Coroplético":
+    gdf_imoveis = gpd.GeoDataFrame(
+        df_filtrado,
+        geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
+        crs="EPSG:4326",
+    )
+    gdf_join = gpd.sjoin(gdf_imoveis, gdf_bairros[["geometry", "NOME"]],
+                         how="left", predicate="within")
+    preco_bairro = gdf_join.groupby("NOME")[coluna_valor].agg(["mean", "min", "max"]).reset_index()
+    preco_bairro.columns = ["Bairro", "media", "min", "max"]
 
-        media_total = gdf_join[coluna_valor].mean()
-        preco_bairro["variacao"] = ((preco_bairro["media"] - media_total) / media_total) * 100
+    media_total = gdf_join[coluna_valor].mean()
+    preco_bairro["variacao"] = ((preco_bairro["media"] - media_total) / media_total) * 100
 
-        gdf_plot = gdf_bairros.merge(preco_bairro, left_on="NOME", right_on="Bairro", how="left")
+    gdf_plot = gdf_bairros.merge(preco_bairro, left_on="NOME", right_on="Bairro", how="left")
 
-        def cor_por_faixa(valor):
-            if pd.isna(valor) or valor <= 0:
-                return "#D3D3D3"
-            for i in range(len(bins) - 1):
-                if bins[i] <= valor <= bins[i + 1]:
-                    return cores[i]
-            return cores[-1]
+    def cor_por_faixa(valor):
+        if pd.isna(valor) or valor <= 0:
+            return "#D3D3D3"
+        for i in range(len(bins) - 1):
+            if bins[i] <= valor <= bins[i + 1]:
+                return cores[i]
+        return cores[-1]
 
-        gdf_plot["cor"] = gdf_plot["media"].apply(cor_por_faixa)
+    gdf_plot["cor"] = gdf_plot["media"].apply(cor_por_faixa)
 
-        folium.GeoJson(
-            gdf_plot,
-            style_function=lambda feature: {
-                "fillColor": feature["properties"]["cor"],
-                "color": "#f0f0f0",
-                "weight": 0.6,
-                "fillOpacity": 0.75,
-            },
-            tooltip=folium.GeoJsonTooltip(
-                fields=["NOME", "media", "min", "max", "variacao"],
-                aliases=["Bairro", "Média", "Mínimo", "Máximo", "Variação (%)"],
-                localize=True,
-                style=(
-                    "background-color: white; "
-                    "border: 1px solid #ccc; "
-                    "border-radius: 4px; "
-                    "padding: 3px; "
-                    "font-size: 10px;"
-                ),
-            ),
+    folium.GeoJson(
+        gdf_plot,
+        style_function=lambda feature: {
+            "fillColor": feature["properties"]["cor"],
+            "color": "#f0f0f0",
+            "weight": 0.6,
+            "fillOpacity": 0.75,
+        },
+        tooltip=folium.GeoJsonTooltip(
+            fields=["NOME", "media", "min", "max", "variacao"],
+            aliases=["Bairro", "Média", "Mínimo", "Máximo", "Variação (%)"],
+            localize=True,
+            style="background-color: white; border: 1px solid #ccc; border-radius: 4px; padding: 3px; font-size: 10px;",
+        ),
+    ).add_to(m)
+
+elif tipo_mapa == "Pontos":
+    for _, row in df_filtrado.iterrows():
+        valor_popup = row[coluna_valor]
+        rotulo = "Preço por m²" if coluna_valor == "valor_m2" else "Preço"
+        folium.CircleMarker(
+            location=[row["latitude"], row["longitude"]],
+            radius=3,
+            color="#00CED1",
+            fill=True,
+            fill_color="#00CED1",
+            fill_opacity=0.6,
+            popup=f"{row.get('Tipo', 'Imóvel')} — {rotulo}: R$ {valor_popup:,.2f}",
         ).add_to(m)
 
-        # Legenda
-        titulo_legenda = "Faixas de preço por m² (R$)" if "m²" in tipo_estatistica else "Faixas de preço (R$)"
-        legend_lines = "".join(
-            [
-                f"<div style='margin:2px 0;'>"
-                f"<span style='display:inline-block;width:16px;height:10px;background:{cores[i]};"
-                f"margin-right:5px;border:1px solid #999'></span>{bins[i]:,} – {bins[i+1]:,}"
-                f"</div>"
-                for i in range(len(bins) - 1)
-            ]
-        )
-        legenda_html = f"""
-        <div style='position: fixed; bottom: 8px; left: 8px; z-index:9999;
-                    background-color: rgba(255,255,255,0.9); padding:6px; border:1px solid #bbb;
-                    font-size:10px; box-shadow:0 1px 4px rgba(0,0,0,0.12); max-width:200px; border-radius:6px;'>
-          <div style='font-weight:600; margin-bottom:4px;'>{titulo_legenda}</div>
-          {legend_lines}
-          <div style='margin:2px 0;'>
-            <span style='display:inline-block;width:16px;height:10px;background:#D3D3D3;margin-right:5px;border:1px solid #999'></span>Sem dados
-          </div>
-        </div>
-        """
-        m.get_root().html.add_child(folium.Element(legenda_html))
+elif tipo_mapa == "Cluster":
+    cluster = MarkerCluster(control=False).add_to(m)
+    for _, row in df_filtrado.iterrows():
+        valor_popup = row[coluna_valor]
+        rotulo = "Preço por m²" if coluna_valor == "valor_m2" else "Preço"
+        folium.Marker(
+            location=[row["latitude"], row["longitude"]],
+            popup=f"{row.get('Tipo', 'Imóvel')} — {rotulo}: R$ {valor_popup:,.2f}",
+        ).add_to(cluster)
 
-    elif tipo_mapa == "Pontos":
-        for _, row in df_filtrado.iterrows():
-            valor_popup = row[coluna_valor]
-            rotulo = "Preço por m²" if coluna_valor == "valor_m2" else "Preço"
-            folium.CircleMarker(
-                location=[row["latitude"], row["longitude"]],
-                radius=3,
-                color="#00CED1",
-                fill=True,
-                fill_color="#00CED1",
-                fill_opacity=0.6,
-                popup=f"{row.get('Tipo', 'Imóvel')} — {rotulo}: R$ {valor_popup:,.2f}",
-            ).add_to(m)
+elif tipo_mapa == "Calor":
+    HeatMap(df_filtrado[["latitude", "longitude"]].values, radius=15).add_to(m)
 
-    elif tipo_mapa == "Cluster":
-        cluster = MarkerCluster(control=False).add_to(m)
-        for _, row in df_filtrado.iterrows():
-            valor_popup = row[coluna_valor]
-            rotulo = "Preço por m²" if coluna_valor == "valor_m2" else "Preço"
-            folium.Marker(
-                location=[row["latitude"], row["longitude"]],
-                popup=f"{row.get('Tipo', 'Imóvel')} — {rotulo}: R$ {valor_popup:,.2f}",
-            ).add_to(cluster)
+st_folium(m, width=700, height=500, returned_objects=[], use_container_width=True)
 
-    elif tipo_mapa == "Calor":
-        HeatMap(df_filtrado[["latitude", "longitude"]].values, radius=15).add_to(m)
+# --- Gráfico ---
+st.markdown("### 📉 Gráfico", unsafe_allow_html=True)
 
-    # Exibir mapa
-    st_folium(m, width=700, height=500, returned_objects=[], use_container_width=True)
+fig = None
+if grafico_tipo == "Histograma":
+    fig, ax = plt.subplots(figsize=(6,5))
+    ax.hist(df_filtrado[coluna_valor], bins=30, color="#00CED1", edgecolor="white")
+    ax.set_title(f"Distribuição de {tipo_estatistica}", color="white")
+    ax.set_xlabel("Valor (R$)", color="white")
+    ax.set_ylabel("Quantidade de imóveis", color="white")
 
-with col_grafico:
-    st.markdown("### 📉 Gráfico")
-
-    fig = None
-    if grafico_tipo == "Histograma":
-        fig, ax = plt.subplots(figsize=(6,5))
-        ax.hist(df_filtrado[coluna_valor], bins=30, color="#00CED1", edgecolor="white")
-        ax.set_title(f"Distribuição de {tipo_estatistica}")
-        ax.set_xlabel("Valor (R$)")
-        ax.set_ylabel("Quantidade de imóveis")
-
-    elif grafico_tipo == "Barras por bairro":
-        gdf_imoveis = gpd.GeoDataFrame(
-            df_filtrado,
-            geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
-            crs="EPSG:4326",
-        )
-        gdf_join = gpd.sjoin(gdf_imoveis, gdf_bairros[["geometry", "NOME"]],
-                             how="left", predicate="within")
-        media_bairro = gdf_join.groupby("NOME")[coluna_valor].mean().sort_values(ascending=False).head(15)
-        fig, ax = plt.subplots(figsize=(6,5))
-        media_bairro.plot(kind="barh", ax=ax, color="#00CED1")
-        ax.set_title(f"Média de {tipo_estatistica} por bairro (top 15)")
-        ax.set_xlabel("Valor médio (R$)")
-        ax.invert_yaxis()
-
-    elif grafico_tipo == "Boxplot por tipo":
-        fig, ax = plt.subplots(figsize=(6,5))
-        sns.boxplot(data=df_filtrado, x="Tipo", y=coluna_valor, ax=ax, palette="Set2")
-        ax.set_title(f"Distribuição de {tipo_estatistica} por tipo de imóvel")
-        ax.set_xlabel("Tipo de imóvel")
-        ax.set_ylabel("Valor (R$)")
-        ax.tick_params(axis="x", rotation=30)
-
-    if fig is not None:
-        st.pyplot(fig, clear_figure=True)
+elif grafico_tipo == "Barras por bairro":
+    gdf_imoveis = gpd.GeoDataFrame(
+        df_filtrado,
+        geometry=gpd.points_from_xy(df_fil
