@@ -129,12 +129,51 @@ tipo_estatistica = st.sidebar.selectbox(
 
 tipo_mapa = st.sidebar.selectbox("Selecione o tipo de mapa:", ["Coroplético", "Pontos", "Cluster", "Calor"])
 grafico_tipo = st.sidebar.selectbox("Selecione o gráfico:", ["Histograma", "Barras por bairro", "Boxplot por tipo"])
-
 # =========================
 # Filtros e coluna alvo
 # =========================
-estatistica_norm = "preco_medio_total"
-...
+estatistica_norm = "preco_medio_total"  # valor padrão
+
+if tipo_estatistica == "Preço médio total":
+    df_filtrado = df.copy()
+    coluna_valor = "Preço"
+    estatistica_norm = "preco_medio_total"
+
+elif tipo_estatistica == "Preço médio por m²":
+    df_filtrado = df[df["valor_m2"].notnull()]
+    coluna_valor = "valor_m2"
+    estatistica_norm = "preco_medio_por_m2"
+
+elif "apartamentos" in tipo_estatistica.lower():
+    df_filtrado = df[df["Tipo"].str.lower().str.contains("apartamento", na=False)]
+    if "m²" in tipo_estatistica:
+        coluna_valor = "valor_m2"
+        df_filtrado = df_filtrado[df_filtrado["valor_m2"].notnull()]
+        estatistica_norm = "preco_medio_por_m2_apartamentos"
+    else:
+        coluna_valor = "Preço"
+        estatistica_norm = "preco_medio_apartamentos"
+
+elif "casas" in tipo_estatistica.lower():
+    df_filtrado = df[df["Tipo"].str.lower().str.contains("casa", na=False)]
+    if "m²" in tipo_estatistica:
+        coluna_valor = "valor_m2"
+        df_filtrado = df_filtrado[df_filtrado["valor_m2"].notnull()]
+        estatistica_norm = "preco_medio_por_m2_casas"
+    else:
+        coluna_valor = "Preço"
+        estatistica_norm = "preco_medio_casas"
+
+elif "condomínios" in tipo_estatistica.lower():
+    df_filtrado = df[df["Tipo"].str.lower().str.contains("condomínio", na=False)]
+    if "m²" in tipo_estatistica:
+        coluna_valor = "valor_m2"
+        df_filtrado = df_filtrado[df_filtrado["valor_m2"].notnull()]
+        estatistica_norm = "preco_medio_por_m2_condominios"
+    else:
+        coluna_valor = "Preço"
+        estatistica_norm = "preco_medio_condominios"
+
 # =========================
 # Resumo estatístico
 # =========================
@@ -161,7 +200,7 @@ st.markdown(
 m = folium.Map(location=[-23.4205, -51.9331], zoom_start=12,
                tiles=tiles_url, attr=attr, control_scale=True)
 
-# --- mesma lógica dos mapas que você já tem (Coroplético, Pontos, Cluster, Calor) ---
+# --- mesma lógica dos mapas que você já tinha (Coroplético, Pontos, Cluster, Calor) ---
 # copie aqui o bloco dos mapas sem alteração
 
 st_folium(m, width=700, height=500, returned_objects=[], use_container_width=True)
