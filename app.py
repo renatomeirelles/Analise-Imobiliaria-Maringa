@@ -197,4 +197,4 @@ with st.sidebar:
 col_mapa, col_grafico = st.columns([1.2, 0.8])
 
 with col_mapa:
-    st.markdown("### 🗺️ Mapa¨)
+    st.markdown("### 🗺️ Mapa")
