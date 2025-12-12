@@ -158,8 +158,12 @@ st.markdown(
 # =========================
 # Mapa em cima
 # =========================
-m = folium.Map(location=[-23.4205, -51.9331], zoom_start=12, tiles=tiles_url, attr=attr, control_scale=True)
-# ... (mesma lógica dos mapas que você já tem)
+m = folium.Map(location=[-23.4205, -51.9331], zoom_start=12,
+               tiles=tiles_url, attr=attr, control_scale=True)
+
+# --- mesma lógica dos mapas que você já tem (Coroplético, Pontos, Cluster, Calor) ---
+# copie aqui o bloco dos mapas sem alteração
+
 st_folium(m, width=700, height=500, returned_objects=[], use_container_width=True)
 
 # =========================
@@ -170,10 +174,31 @@ if grafico_tipo == "Histograma":
     fig, ax = plt.subplots(figsize=(6,5))
     ax.hist(df_filtrado[coluna_valor], bins=30, color="#00CED1", edgecolor="white")
     ax.set_title(f"Distribuição de {tipo_estatistica}")
+    ax.set_xlabel("Valor (R$)")
+    ax.set_ylabel("Quantidade de imóveis")
+
 elif grafico_tipo == "Barras por bairro":
-    # mesma lógica do seu código
+    gdf_imoveis = gpd.GeoDataFrame(
+        df_filtrado,
+        geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
+        crs="EPSG:4326",
+    )
+    gdf_join = gpd.sjoin(gdf_imoveis, gdf_bairros[["geometry", "NOME"]],
+                         how="left", predicate="within")
+    media_bairro = gdf_join.groupby("NOME")[coluna_valor].mean().sort_values(ascending=False).head(15)
+    fig, ax = plt.subplots(figsize=(6,5))
+    media_bairro.plot(kind="barh", ax=ax, color="#00CED1")
+    ax.set_title(f"Média de {tipo_estatistica} por bairro (top 15)")
+    ax.set_xlabel("Valor médio (R$)")
+    ax.invert_yaxis()
+
 elif grafico_tipo == "Boxplot por tipo":
-    # mesma lógica do seu código
+    fig, ax = plt.subplots(figsize=(6,5))
+    sns.boxplot(data=df_filtrado, x="Tipo", y=coluna_valor, ax=ax, palette="Set2")
+    ax.set_title(f"Distribuição de {tipo_estatistica} por tipo de imóvel")
+    ax.set_xlabel("Tipo de imóvel")
+    ax.set_ylabel("Valor (R$)")
+    ax.tick_params(axis="x", rotation=30)
 
 if fig is not None:
     st.pyplot(fig, clear_figure=True)
