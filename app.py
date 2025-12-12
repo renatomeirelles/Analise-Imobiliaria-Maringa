@@ -196,8 +196,13 @@ with st.sidebar:
 # --- Mapa ---
 st.markdown("### 🗺️ Mapa", unsafe_allow_html=True)
 
-m = folium.Map(location=[-23.4205, -51.9331], zoom_start=12,
-               tiles=tiles_url, attr=attr, control_scale=True)
+m = folium.Map(
+    location=[-23.4205, -51.9331],
+    zoom_start=12,
+    tiles=tiles_url,
+    attr=attr,
+    control_scale=True
+)
 
 bins = faixas_dict.get(estatistica_norm, faixas_base['preco'])
 
@@ -207,9 +212,19 @@ if tipo_mapa == "Coroplético":
         geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
         crs="EPSG:4326",
     )
-    gdf_join = gpd.sjoin(gdf_imoveis, gdf_bairros[["geometry", "NOME"]],
-                         how="left", predicate="within")
-    preco_bairro = gdf_join.groupby("NOME")[coluna_valor].agg(["mean", "min", "max"]).reset_index()
+
+    gdf_join = gpd.sjoin(
+        gdf_imoveis,
+        gdf_bairros[["geometry", "NOME"]],
+        how="left",
+        predicate="within"
+    )
+
+    preco_bairro = (
+        gdf_join.groupby("NOME")[coluna_valor]
+        .agg(["mean", "min", "max"])
+        .reset_index()
+    )
     preco_bairro.columns = ["Bairro", "media", "min", "max"]
 
     media_total = gdf_join[coluna_valor].mean()
@@ -239,7 +254,10 @@ if tipo_mapa == "Coroplético":
             fields=["NOME", "media", "min", "max", "variacao"],
             aliases=["Bairro", "Média", "Mínimo", "Máximo", "Variação (%)"],
             localize=True,
-            style="background-color: white; border: 1px solid #ccc; border-radius: 4px; padding: 3px; font-size: 10px;",
+            style=(
+                "background-color: white; border: 1px solid #ccc; border-radius: 4px; "
+                "padding: 3px; font-size: 10px;"
+            ),
         ),
     ).add_to(m)
 
@@ -277,13 +295,46 @@ st.markdown("### 📉 Gráfico", unsafe_allow_html=True)
 
 fig = None
 if grafico_tipo == "Histograma":
-    fig, ax = plt.subplots(figsize=(6,5))
+    fig, ax = plt.subplots(figsize=(6, 5))
     ax.hist(df_filtrado[coluna_valor], bins=30, color="#00CED1", edgecolor="white")
     ax.set_title(f"Distribuição de {tipo_estatistica}", color="white")
     ax.set_xlabel("Valor (R$)", color="white")
     ax.set_ylabel("Quantidade de imóveis", color="white")
+    ax.tick_params(colors="white")
 
 elif grafico_tipo == "Barras por bairro":
     gdf_imoveis = gpd.GeoDataFrame(
         df_filtrado,
-        geometry=gpd.points_from_xy(df_fil
+        geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
+        crs="EPSG:4326",
+    )
+    gdf_join = gpd.sjoin(
+        gdf_imoveis,
+        gdf_bairros[["geometry", "NOME"]],
+        how="left",
+        predicate="within"
+    )
+    media_bairro = (
+        gdf_join.groupby("NOME")[coluna_valor]
+        .mean()
+        .sort_values(ascending=False)
+        .head(15)
+    )
+    fig, ax = plt.subplots(figsize=(6, 5))
+    media_bairro.plot(kind="barh", ax=ax, color="#00CED1")
+    ax.set_title(f"Média de {tipo_estatistica} por bairro (top 15)", color="white")
+    ax.set_xlabel("Valor médio (R$)", color="white")
+    ax.tick_params(colors="white")
+    ax.invert_yaxis()
+
+elif grafico_tipo == "Boxplot por tipo":
+    fig, ax = plt.subplots(figsize=(6, 5))
+    sns.boxplot(data=df_filtrado, x="Tipo", y=coluna_valor, ax=ax, palette="Set2")
+    ax.set_title(f"Distribuição de {tipo_estatistica} por tipo de imóvel", color="white")
+    ax.set_xlabel("Tipo de imóvel", color="white")
+    ax.set_ylabel("Valor (R$)", color="white")
+    ax.tick_params(axis="x", colors="white", rotation=30)
+    ax.tick_params(axis="y", colors="white")
+
+if fig is not None:
+    st.pyplot(fig, clear_figure=True)
