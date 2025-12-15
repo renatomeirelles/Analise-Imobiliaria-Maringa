@@ -28,8 +28,6 @@ sns.set(style="darkgrid")
 # =========================
 st.markdown("""
 <style>
-/* NÃO esconder o header, para não quebrar a sidebar */
-
 /* Layout geral */
 .block-container {
     padding-top: 0.5rem;
@@ -47,16 +45,7 @@ h1, h2, h3 {
     margin-bottom: 0.6rem;
 }
 
-/* Espaçamento compacto */
-.stColumns { gap: 0.25rem !important; }
-.st-emotion-cache-1jicfl2, 
-.st-emotion-cache-13dfmoy, 
-.st-emotion-cache-1v0mbdj {
-    margin: 0 !important;
-    padding: 0 !important;
-}
-
-/* Sidebar escura e métricas com texto branco */
+/* Sidebar escura e métricas em branco */
 [data-testid="stSidebar"] {
     background-color: #111 !important;
 }
@@ -64,6 +53,20 @@ h1, h2, h3 {
     color: white !important;
     font-size: 15px;
     font-weight: 500;
+}
+
+/* Esconde a barra superior (Share, estrela, bonequinho correndo) */
+[data-testid="stToolbar"] {
+    display: none !important;
+}
+
+/* Espaçamento compacto */
+.stColumns { gap: 0.25rem !important; }
+.st-emotion-cache-1jicfl2, 
+.st-emotion-cache-13dfmoy, 
+.st-emotion-cache-1v0mbdj {
+    margin: 0 !important;
+    padding: 0 !important;
 }
 
 /* Título principal com fundo escuro */
