@@ -24,7 +24,7 @@ plt.style.use("dark_background")
 sns.set(style="darkgrid")
 
 # =========================
-# CSS seguro
+# CSS otimizado
 # =========================
 st.markdown("""
 <style>
@@ -45,6 +45,12 @@ h1, h2, h3 {
     background-color: #111 !important;
 }
 .stColumns { gap: 0.25rem !important; }
+.st-emotion-cache-1jicfl2, 
+.st-emotion-cache-13dfmoy, 
+.st-emotion-cache-1v0mbdj {
+    margin: 0 !important;
+    padding: 0 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -52,9 +58,19 @@ h1, h2, h3 {
 # Título principal
 # =========================
 st.markdown(
-    '<h1 style="text-align:center; color:#00CED1; font-weight:700;">Análise Estatística e Espacial da Oferta de Imóveis Residenciais</h1>',
+    '<h1 style="text-align:center; color:#00CED1; font-weight:700; font-size:28px; margin-bottom:0.8rem;">Análise Estatística e Espacial da Oferta de Imóveis Residenciais</h1>',
     unsafe_allow_html=True
 )
+
+# =========================
+# Títulos de mapa e gráfico na mesma linha
+# =========================
+st.markdown("""
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.2rem;">
+    <h3 style="color:#00CED1; font-size:18px; margin:0;">Mapa</h3>
+    <h3 style="color:#00CED1; font-size:18px; margin:0;">Gráfico</h3>
+</div>
+""", unsafe_allow_html=True)
 # =========================
 # Sidebar com filtros
 # =========================
@@ -132,6 +148,7 @@ except Exception as e:
 if not data_ok:
     st.info("Ajuste os arquivos e recarregue a página.")
     st.stop()
+
 # =========================
 # Configuração de tiles Jawg Dark
 # =========================
@@ -218,7 +235,6 @@ with st.sidebar:
 # =========================
 # Layout em duas colunas: mapa (maior) + gráfico (menor)
 # =========================
-st.markdown("### Mapa e gráfico lado a lado", unsafe_allow_html=True)
 col_map, col_chart = st.columns([7, 5], gap="small")
 
 # Função para estilo dos gráficos
@@ -250,7 +266,6 @@ with col_map:
             geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
             crs="EPSG:4326",
         )
-
         try:
             gdf_join = gpd.sjoin(
                 gdf_imoveis,
@@ -280,7 +295,7 @@ with col_map:
 
         def cor_por_faixa(valor):
             if pd.isna(valor) or valor <= 0:
-                return "#2b2b2b"  # cinza escuro para áreas sem dados
+                return "#2b2b2b"
             for i in range(len(bins) - 1):
                 if bins[i] <= valor <= bins[i + 1]:
                     return cores[i]
@@ -334,20 +349,18 @@ with col_map:
     elif tipo_mapa == "Calor":
         HeatMap(df_filtrado[["latitude", "longitude"]].values, radius=15).add_to(m)
 
-    st_folium(m, height=520, use_container_width=True)
+    st_folium(m, height=480, use_container_width=True)
 
 # --- Gráfico (coluna direita) ---
 with col_chart:
-    st.markdown("### 📉 Gráfico", unsafe_allow_html=True)
-
     fig = None
 
     if grafico_tipo == "Histograma":
-        fig, ax = plt.subplots(figsize=(5.5, 5))
+        fig, ax = plt.subplots(figsize=(5, 4.5))
         fig.patch.set_facecolor("#111111")
         ax.set_facecolor("#111111")
         ax.hist(df_filtrado[coluna_valor], bins=30, color="#00CED1", edgecolor="white")
-        ax.set_title(f"Distribuição de {tipo_estatistica}", fontsize=12, pad=8)
+        ax.set_title(f"Distribuição de {tipo_estatistica}", fontsize=11, pad=6)
         ax.set_xlabel("Valor (R$)")
         ax.set_ylabel("Quantidade de imóveis")
         ax.xaxis.set_major_formatter(currency_formatter)
@@ -373,11 +386,11 @@ with col_chart:
             .head(15)
         )
 
-        fig, ax = plt.subplots(figsize=(5.5, 5))
+        fig, ax = plt.subplots(figsize=(5, 4.5))
         fig.patch.set_facecolor("#111111")
         ax.set_facecolor("#111111")
         media_bairro.plot(kind="barh", ax=ax, color="#00CED1")
-        ax.set_title(f"Média de {tipo_estatistica} por bairro (top 15)", fontsize=12, pad=8)
+        ax.set_title(f"Média de {tipo_estatistica} por bairro (top 15)", fontsize=11, pad=6)
         ax.set_xlabel("Valor médio (R$)")
         ax.xaxis.set_major_formatter(currency_formatter)
         ax.set_yticks(range(len(media_bairro.index)))
@@ -387,11 +400,11 @@ with col_chart:
         fig.tight_layout()
 
     elif grafico_tipo == "Boxplot por tipo":
-        fig, ax = plt.subplots(figsize=(5.5, 5))
+        fig, ax = plt.subplots(figsize=(5, 4.5))
         fig.patch.set_facecolor("#111111")
         ax.set_facecolor("#111111")
         sns.boxplot(data=df_filtrado, x="Tipo", y=coluna_valor, ax=ax, palette="Set2")
-        ax.set_title(f"Distribuição de {tipo_estatistica} por tipo de imóvel", fontsize=12, pad=8)
+        ax.set_title(f"Distribuição de {tipo_estatistica} por tipo de imóvel", fontsize=11, pad=6)
         ax.set_xlabel("Tipo de imóvel")
         ax.set_ylabel("Valor (R$)")
         ax.tick_params(axis="x", rotation=30)
@@ -408,14 +421,12 @@ with col_chart:
 st.markdown(
     """
     <style>
+    .stColumns { gap: 0.25rem !important; }
     .st-emotion-cache-1jicfl2, 
     .st-emotion-cache-13dfmoy, 
     .st-emotion-cache-1v0mbdj {
         margin: 0 !important;
         padding: 0 !important;
-    }
-    .stColumns {
-        gap: 0.25rem !important;
     }
     </style>
     """,
