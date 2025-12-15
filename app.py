@@ -194,4 +194,4 @@ def style_axes(ax):
     ax.yaxis.label.set_color("white")
     for spine in ax.spines.values():
         spine.set_color("#bfbfbf")
-    ax.grid(True, color="#444444",
+    ax.grid(True, color="#444444", alpha=0.3)
