@@ -107,7 +107,6 @@ st.markdown("""
     <h3>Gráfico</h3>
 </div>
 """, unsafe_allow_html=True)
-
 # =========================
 # Sidebar com filtros
 # =========================
@@ -259,15 +258,15 @@ elif "condomínios" in tipo_estatistica.lower():
     estatistica_norm = "preco_medio_por_m2_condominios" if "m²" in tipo_estatistica else "preco_medio_condominios"
 
 # =========================
-# Métricas na sidebar
+# Métricas na sidebar (texto branco)
 # =========================
 num_imoveis = len(df_filtrado)
 media_imoveis = df_filtrado[coluna_valor].mean() if num_imoveis else 0
 
 with st.sidebar:
     st.markdown("## 📊 Estatísticas")
-    st.markdown(f"**🔢 Imóveis encontrados:** {num_imoveis}")
-    st.markdown(f"**📈 Média ({tipo_estatistica}):** R$ {media_imoveis:,.2f}")
+    st.markdown(f'<div class="sidebar-metric">🔢 Imóveis encontrados: {num_imoveis}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="sidebar-metric">📈 Média ({tipo_estatistica}): R$ {media_imoveis:,.2f}</div>', unsafe_allow_html=True)
 
 # =========================
 # Layout em duas colunas: mapa (maior) + gráfico (menor)
@@ -386,7 +385,8 @@ with col_map:
     elif tipo_mapa == "Calor":
         HeatMap(df_filtrado[["latitude", "longitude"]].values, radius=15).add_to(m)
 
-    st_folium(m, height=480, use_container_width=True)
+    # ✅ chamada mínima para evitar atualização constante
+    st_folium(m, height=480)
 
 # --- Gráfico (coluna direita) ---
 with col_chart:
