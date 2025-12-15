@@ -55,9 +55,12 @@ h1, h2, h3 {
     font-weight: 500;
 }
 
-/* Esconde a barra superior (Share, estrela, bonequinho correndo) */
+/* Esconde a barra superior e remove seu espaço */
 [data-testid="stToolbar"] {
     display: none !important;
+    height: 0px !important;
+    position: absolute !important;
+    top: 0 !important;
 }
 
 /* Espaçamento compacto */
