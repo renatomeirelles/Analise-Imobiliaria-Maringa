@@ -16,12 +16,13 @@ plt.style.use("dark_background")
 sns.set(style="darkgrid")
 
 # =========================
-# CSS mínimo (sem fundo, com título visível)
+# CSS mínimo (mantém título e sidebar visíveis)
 # =========================
 st.markdown(
     """
     <style>
-    header { visibility: hidden; }
+    /* Esconde apenas o cabeçalho padrão, mas mantém sidebar */
+    header {visibility: hidden;}
     .block-container {
         padding-top: 0.5rem;
         padding-bottom: 0.5rem;
