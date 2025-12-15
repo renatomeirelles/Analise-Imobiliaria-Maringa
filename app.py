@@ -55,10 +55,14 @@ h1, h2, h3 {
 """, unsafe_allow_html=True)
 
 # =========================
-# Título principal
+# Título principal visível
 # =========================
 st.markdown(
-    '<h1 style="text-align:center; color:#00CED1; font-weight:700; font-size:28px; margin-bottom:0.8rem;">Análise Estatística e Espacial da Oferta de Imóveis Residenciais</h1>',
+    """
+    <h1 style="text-align:center; color:#00CED1 !important; font-weight:700; font-size:28px; margin-bottom:0.8rem;">
+        Análise Estatística e Espacial da Oferta de Imóveis Residenciais
+    </h1>
+    """,
     unsafe_allow_html=True
 )
 
