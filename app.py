@@ -133,6 +133,12 @@ if not data_ok:
     st.info("Ajuste os arquivos e recarregue a página.")
     st.stop()
 # =========================
+# Configuração de tiles Jawg Dark
+# =========================
+access_token = "ZK6EgfhFT6px8F8MsRfOp2S5aUMPOvNr5CEEtLmjOYjHDC2MzgI0ZJ1cJjj0C98Y"
+tiles_url = f"https://tile.jawg.io/jawg-dark/{{z}}/{{x}}/{{y}}{{r}}.png?access-token={access_token}"
+attr = '<a href="https://jawg.io" target="_blank">&copy; <b>Jawg</b>Maps</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+# =========================
 # Paleta e faixas para mapa
 # =========================
 cores = ['#FF0000', '#FFA500', '#FFFF00', '#00FF00', '#00CED1',
