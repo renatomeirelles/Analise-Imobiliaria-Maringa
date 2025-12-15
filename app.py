@@ -24,15 +24,21 @@ plt.style.use("dark_background")
 sns.set(style="darkgrid")
 
 # =========================
-# CSS otimizado
+# CSS otimizado e visual refinado
 # =========================
 st.markdown("""
 <style>
+/* Remove a aba superior (Share, estrela, etc.) */
+header {visibility: hidden;}
+
+/* Layout geral */
 .block-container {
     padding-top: 0.5rem;
     padding-bottom: 0.5rem;
     max-width: 1400px;
 }
+
+/* Estilo de texto */
 label, .stSelectbox label {
     color: white !important;
     font-weight: 600;
@@ -41,9 +47,6 @@ h1, h2, h3 {
     color: white !important;
     margin-bottom: 0.6rem;
 }
-[data-testid="stSidebar"] {
-    background-color: #111 !important;
-}
 .stColumns { gap: 0.25rem !important; }
 .st-emotion-cache-1jicfl2, 
 .st-emotion-cache-13dfmoy, 
@@ -51,7 +54,8 @@ h1, h2, h3 {
     margin: 0 !important;
     padding: 0 !important;
 }
-/* Título com fundo escuro */
+
+/* Título principal com fundo escuro */
 .titulo-com-fundo {
     background-color: #111;
     padding: 0.6rem 1rem;
@@ -62,6 +66,24 @@ h1, h2, h3 {
     font-size: 28px;
     margin-bottom: 0.8rem;
 }
+
+/* Títulos Mapa e Gráfico com fundo escuro */
+.titulo-duplo {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.4rem;
+}
+.titulo-duplo h3 {
+    background-color: #111;
+    color: white;
+    font-size: 18px;
+    font-weight: 600;
+    padding: 0.4rem 0.8rem;
+    border-radius: 6px;
+    margin: 0;
+}
+
 /* Métricas da sidebar em branco */
 .sidebar-metric {
     color: white !important;
@@ -77,12 +99,12 @@ h1, h2, h3 {
 st.markdown('<div class="titulo-com-fundo">Análise Estatística e Espacial da Oferta de Imóveis Residenciais</div>', unsafe_allow_html=True)
 
 # =========================
-# Títulos de mapa e gráfico na mesma linha
+# Títulos de Mapa e Gráfico com fundo escuro e alinhados
 # =========================
 st.markdown("""
-<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.2rem;">
-    <h3 style="color:#00CED1; font-size:18px; margin:0;">Mapa</h3>
-    <h3 style="color:#00CED1; font-size:18px; margin:0;">Gráfico</h3>
+<div class="titulo-duplo">
+    <h3>Mapa</h3>
+    <h3>Gráfico</h3>
 </div>
 """, unsafe_allow_html=True)
 
