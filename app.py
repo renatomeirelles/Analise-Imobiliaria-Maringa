@@ -51,20 +51,30 @@ h1, h2, h3 {
     margin: 0 !important;
     padding: 0 !important;
 }
+/* Título com fundo escuro */
+.titulo-com-fundo {
+    background-color: #111;
+    padding: 0.6rem 1rem;
+    border-radius: 6px;
+    text-align: center;
+    color: white;
+    font-weight: 700;
+    font-size: 28px;
+    margin-bottom: 0.8rem;
+}
+/* Métricas da sidebar em branco */
+.sidebar-metric {
+    color: white !important;
+    font-size: 15px;
+    font-weight: 500;
+}
 </style>
 """, unsafe_allow_html=True)
 
 # =========================
-# Título principal visível
+# Título principal com fundo escuro
 # =========================
-st.markdown(
-    """
-    <h1 style="text-align:center; color:#00CED1 !important; font-weight:700; font-size:28px; margin-bottom:0.8rem;">
-        Análise Estatística e Espacial da Oferta de Imóveis Residenciais
-    </h1>
-    """,
-    unsafe_allow_html=True
-)
+st.markdown('<div class="titulo-com-fundo">Análise Estatística e Espacial da Oferta de Imóveis Residenciais</div>', unsafe_allow_html=True)
 
 # =========================
 # Títulos de mapa e gráfico na mesma linha
@@ -75,6 +85,7 @@ st.markdown("""
     <h3 style="color:#00CED1; font-size:18px; margin:0;">Gráfico</h3>
 </div>
 """, unsafe_allow_html=True)
+
 # =========================
 # Sidebar com filtros
 # =========================
