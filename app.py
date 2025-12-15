@@ -24,12 +24,11 @@ plt.style.use("dark_background")
 sns.set(style="darkgrid")
 
 # =========================
-# CSS otimizado e visual refinado
+# CSS otimizado e seguro
 # =========================
 st.markdown("""
 <style>
-/* Remove a aba superior (Share, estrela, etc.) */
-header {visibility: hidden;}
+/* NÃO esconder o header, para não quebrar a sidebar */
 
 /* Layout geral */
 .block-container {
@@ -47,12 +46,24 @@ h1, h2, h3 {
     color: white !important;
     margin-bottom: 0.6rem;
 }
+
+/* Espaçamento compacto */
 .stColumns { gap: 0.25rem !important; }
 .st-emotion-cache-1jicfl2, 
 .st-emotion-cache-13dfmoy, 
 .st-emotion-cache-1v0mbdj {
     margin: 0 !important;
     padding: 0 !important;
+}
+
+/* Sidebar escura e métricas com texto branco */
+[data-testid="stSidebar"] {
+    background-color: #111 !important;
+}
+.sidebar-metric {
+    color: white !important;
+    font-size: 15px;
+    font-weight: 500;
 }
 
 /* Título principal com fundo escuro */
@@ -83,13 +94,6 @@ h1, h2, h3 {
     border-radius: 6px;
     margin: 0;
 }
-
-/* Métricas da sidebar em branco */
-.sidebar-metric {
-    color: white !important;
-    font-size: 15px;
-    font-weight: 500;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -107,6 +111,7 @@ st.markdown("""
     <h3>Gráfico</h3>
 </div>
 """, unsafe_allow_html=True)
+
 # =========================
 # Sidebar com filtros
 # =========================
