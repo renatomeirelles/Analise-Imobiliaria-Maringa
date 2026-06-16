@@ -349,6 +349,7 @@ with col_map:
                 how="left",
                 predicate="intersects"
             )
+
         preco_bairro = (
             gdf_join.groupby("NOME")[coluna_valor]
             .agg(["mean", "min", "max"])
@@ -419,6 +420,7 @@ with col_map:
 
     st_folium(m, height=480)
 
+
 # --- Gráfico (coluna direita) ---
 with col_chart:
     fig = None
@@ -442,24 +444,45 @@ with col_chart:
             crs="EPSG:4326",
         )
         gdf_join = gpd.sjoin(
+            gdf_imoveis,
+            gdf_bairros[["geometry", "NOME"]],
+            how="left",
+            predicate="within"
+        )
 
-# =========================
-# Ajuste fino de espaçamento
-# =========================
-st.markdown(
-    """
-    <style>
-    /* Ajuste de espaçamento entre colunas */
-    .stColumns { gap: 0.25rem !important; }
+        media_bairro = (
+            gdf_join.groupby("NOME")[coluna_valor]
+            .mean()
+            .sort_values(ascending=False)
+            .head(15)
+        )
 
-    /* Remove margens/paddings extras em alguns blocos */
-    .st-emotion-cache-1jicfl2,
-    .st-emotion-cache-13dfmoy,
-    .st-emotion-cache-1v0mbdj {
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+        fig, ax = plt.subplots(figsize=(5, 4.5))
+        fig.patch.set_facecolor("#111111")
+        ax.set_facecolor("#111111")
+        media_bairro.plot(kind="barh", ax=ax, color="#00CED1")
+        ax.set_title(f"Média de {tipo_estatistica} por bairro (top 15)", fontsize=11, pad=6)
+        ax.set_xlabel("Valor médio (R$)")
+        ax.xaxis.set_major_formatter(currency_formatter)
+        ax.set_yticks(range(len(media_bairro.index)))
+        ax.set_yticklabels(media_bairro.index)
+        ax.invert_yaxis()
+        style_axes(ax)
+        fig.tight_layout()
+
+    elif grafico_tipo == "Boxplot por tipo":
+        fig, ax = plt.subplots(figsize=(5, 4.5))
+        fig.patch.set_facecolor("#111111")
+        ax.set_facecolor("#111111")
+        sns.boxplot(data=df_filtrado, x="Tipo", y=coluna_valor, ax=ax, palette="Set2")
+        ax.set_title(f"Distribuição de {tipo_estatistica} por tipo de imóvel", fontsize=11, pad=6)
+        ax.set_xlabel("Tipo de imóvel")
+        ax.set_ylabel("Valor (R$)")
+        ax.tick_params(axis="x", rotation=30)
+        ax.yaxis.set_major_formatter(currency_formatter)
+        style_axes(ax)
+        fig.tight_layout()
+
+    if fig is not None:
+        st.pyplot(fig, clear_figure=True)
+
