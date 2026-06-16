@@ -349,7 +349,6 @@ with col_map:
                 how="left",
                 predicate="intersects"
             )
-
         preco_bairro = (
             gdf_join.groupby("NOME")[coluna_valor]
             .agg(["mean", "min", "max"])
