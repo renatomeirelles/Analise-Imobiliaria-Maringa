@@ -248,46 +248,50 @@ faixas_dict = {
 }
 
 # =========================
-# Filtros e coluna alvo
+# Filtros (corrigido, agora em coluna à direita)
 # =========================
-estatistica_norm = "preco_medio_total"
+col_map, col_chart, col_filters = st.columns([6, 6, 4], gap="small")
 
-if tipo_estatistica == "Preço médio total":
-    df_filtrado = df.copy()
-    coluna_valor = "Preço"
-    estatistica_norm = "preco_medio_total"
+with col_filters:
+    st.markdown("## 🎛️ Filtros")
 
-elif tipo_estatistica == "Preço médio por m²":
-    if "valor_m2" not in df.columns:
-        st.warning("Não foi possível calcular valor por m². Verifique 'Tamanho(m²)'.")
-        df_filtrado = df.copy()
-        coluna_valor = "Preço"
-        estatistica_norm = "preco_medio_total"
-    else:
-        df_filtrado = df[df["valor_m2"].notnull()]
-        coluna_valor = "valor_m2"
-        estatistica_norm = "preco_medio_por_m2"
+    # Filtro de estatística
+    tipo_estatistica = st.selectbox(
+        "Selecione a estatística:",
+        [
+            "Preço médio total",
+            "Preço médio por m²",
+            "Preço médio apartamentos",
+            "Preço médio por m² apartamentos",
+            "Preço médio casas",
+            "Preço médio por m² casas",
+            "Preço médio condomínios",
+            "Preço médio por m² condomínios",
+        ],
+        index=0,
+        key="estatistica_selectbox"
+    )
 
-elif "apartamentos" in tipo_estatistica.lower():
-    df_filtrado = df[df["Tipo"].str.lower().str.contains("apartamento", na=False)]
-    coluna_valor = "valor_m2" if "m²" in tipo_estatistica else "Preço"
-    if coluna_valor == "valor_m2":
-        df_filtrado = df_filtrado[df_filtrado["valor_m2"].notnull()]
-    estatistica_norm = "preco_medio_por_m2_apartamentos" if "m²" in tipo_estatistica else "preco_medio_apartamentos"
+    # Filtro de mapa
+    tipo_mapa = st.selectbox(
+        "Selecione o tipo de mapa:",
+        ["Coroplético", "Pontos", "Cluster", "Calor"],
+        index=0,
+        key="mapa_selectbox"
+    )
 
-elif "casas" in tipo_estatistica.lower():
-    df_filtrado = df[df["Tipo"].str.lower().str.contains("casa", na=False)]
-    coluna_valor = "valor_m2" if "m²" in tipo_estatistica else "Preço"
-    if coluna_valor == "valor_m2":
-        df_filtrado = df_filtrado[df_filtrado["valor_m2"].notnull()]
-    estatistica_norm = "preco_medio_por_m2_casas" if "m²" in tipo_estatistica else "preco_medio_casas"
+    # Filtro de gráfico
+    grafico_tipo = st.selectbox(
+        "Selecione o gráfico:",
+        ["Histograma", "Barras por bairro", "Boxplot por tipo"],
+        index=0,
+        key="grafico_selectbox"
+    )
 
-elif "condomínios" in tipo_estatistica.lower():
-    df_filtrado = df[df["Tipo"].str.lower().str.contains("condomínio", na=False)]
-    coluna_valor = "valor_m2" if "m²" in tipo_estatistica else "Preço"
-    if coluna_valor == "valor_m2":
-        df_filtrado = df_filtrado[df_filtrado["valor_m2"].notnull()]
-    estatistica_norm = "preco_medio_por_m2_condominios" if "m²" in tipo_estatistica else "preco_medio_condominios"
+    # Métricas
+    st.markdown("## 📊 Estatísticas")
+    st.markdown(f'<div class="sidebar-metric">🔢 Imóveis encontrados: {num_imoveis}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="sidebar-metric">📈 Média ({tipo_estatistica}): R$ {media_imoveis:,.2f}</div>', unsafe_allow_html=True)
 
 # =========================
 # Métricas na sidebar (texto branco)
