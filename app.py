@@ -95,9 +95,6 @@ h1, h2, h3 {
 </style>
 """, unsafe_allow_html=True)
 
-
-
-
 # =========================
 # Título principal com fundo escuro
 # =========================
@@ -114,37 +111,48 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =========================
-# Sidebar com filtros
+# Sidebar com filtros (corrigido)
 # =========================
-with st.sidebar:
-    st.markdown("## 🎛️ Filtros")
-    tipo_estatistica = st.selectbox(
-        "Selecione a estatística:",
-        [
-            "Preço médio total",
-            "Preço médio por m²",
-            "Preço médio apartamentos",
-            "Preço médio por m² apartamentos",
-            "Preço médio casas",
-            "Preço médio por m² casas",
-            "Preço médio condomínios",
-            "Preço médio por m² condomínios",
-        ],
-        index=0,
-        key="estatistica_selectbox"
-    )
-    tipo_mapa = st.selectbox(
-        "Selecione o tipo de mapa:",
-        ["Coroplético", "Pontos", "Cluster", "Calor"],
-        index=0,
-        key="mapa_selectbox"
-    )
-    grafico_tipo = st.selectbox(
-        "Selecione o gráfico:",
-        ["Histograma", "Barras por bairro", "Boxplot por tipo"],
-        index=0,
-        key="grafico_selectbox"
-    )
+st.sidebar.title("🎛️ Filtros")
+
+# Filtro de estatística
+tipo_estatistica = st.sidebar.selectbox(
+    "Selecione a estatística:",
+    [
+        "Preço médio total",
+        "Preço médio por m²",
+        "Preço médio apartamentos",
+        "Preço médio por m² apartamentos",
+        "Preço médio casas",
+        "Preço médio por m² casas",
+        "Preço médio condomínios",
+        "Preço médio por m² condomínios",
+    ],
+    index=0,
+    key="estatistica_selectbox"
+)
+
+# Filtro de mapa
+tipo_mapa = st.sidebar.selectbox(
+    "Selecione o tipo de mapa:",
+    ["Coroplético", "Pontos", "Cluster", "Calor"],
+    index=0,
+    key="mapa_selectbox"
+)
+
+# Filtro de gráfico
+grafico_tipo = st.sidebar.selectbox(
+    "Selecione o gráfico:",
+    ["Histograma", "Barras por bairro", "Boxplot por tipo"],
+    index=0,
+    key="grafico_selectbox"
+)
+
+# Exemplo de métrica para garantir que a sidebar sempre tenha conteúdo
+st.sidebar.markdown("## 📊 Estatísticas")
+st.sidebar.markdown("🔢 Imóveis encontrados: --")
+st.sidebar.markdown("📈 Média: --")
+
 
 # =========================
 # Funções de carga de dados
