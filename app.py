@@ -55,22 +55,13 @@ h1, h2, h3 {
     font-weight: 500;
 }
 
-/* Esconde a barra superior e remove seu espaço */
+/* Esconde apenas a barra superior */
 [data-testid="stToolbar"] {
     display: none !important;
-    height: 0px !important;
-    position: absolute !important;
-    top: 0 !important;
 }
 
 /* Espaçamento compacto */
 .stColumns { gap: 0.25rem !important; }
-.st-emotion-cache-1jicfl2, 
-.st-emotion-cache-13dfmoy, 
-.st-emotion-cache-1v0mbdj {
-    margin: 0 !important;
-    padding: 0 !important;
-}
 
 /* Título principal com fundo escuro */
 .titulo-com-fundo {
