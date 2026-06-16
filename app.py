@@ -45,15 +45,9 @@ h1, h2, h3 {
     margin-bottom: 0.6rem;
 }
 
-/* Sidebar fixa e escura */
+/* Sidebar escura (sem mexer na posição) */
 [data-testid="stSidebar"] {
     background-color: #111 !important;
-    position: fixed !important;   /* fixa a barra lateral */
-    top: 0;
-    left: 0;
-    height: 100%;
-    overflow-y: auto;             /* permite rolagem se necessário */
-    z-index: 100;                 /* garante que fique acima dos outros elementos */
 }
 .sidebar-metric {
     color: white !important;
@@ -61,7 +55,7 @@ h1, h2, h3 {
     font-weight: 500;
 }
 
-/* Esconde apenas a barra superior (não afeta sidebar) */
+/* Esconde apenas a barra superior */
 [data-testid="stToolbar"] {
     display: none !important;
 }
@@ -100,6 +94,7 @@ h1, h2, h3 {
 }
 </style>
 """, unsafe_allow_html=True)
+
 
 
 
