@@ -30,7 +30,7 @@ st.markdown("""
 <style>
 /* Layout geral */
 .block-container {
-    padding-top: 2.5rem;  /* espaço superior para não cobrir título */
+    padding-top: 2.5rem;   /* espaço superior para não cobrir título */
     padding-bottom: 0.5rem;
     max-width: 1400px;
 }
@@ -45,17 +45,23 @@ h1, h2, h3 {
     margin-bottom: 0.6rem;
 }
 
-/* Sidebar escura (sem mexer na posição) */
+/* Sidebar escura (sem esconder ou fixar) */
 [data-testid="stSidebar"] {
     background-color: #111 !important;
+    color: white !important;
 }
+[data-testid="stSidebar"] * {
+    color: white !important;   /* força texto branco dentro da sidebar */
+}
+
+/* Métricas na sidebar */
 .sidebar-metric {
     color: white !important;
     font-size: 15px;
     font-weight: 500;
 }
 
-/* Esconde apenas a barra superior */
+/* Esconde apenas a barra superior (toolbar) */
 [data-testid="stToolbar"] {
     display: none !important;
 }
@@ -66,7 +72,7 @@ h1, h2, h3 {
 /* Título principal com fundo escuro */
 .titulo-com-fundo {
     background-color: #111;
-    padding: 1rem 1rem;
+    padding: 1rem;
     border-radius: 6px;
     text-align: center;
     color: white;
@@ -98,7 +104,10 @@ h1, h2, h3 {
 # =========================
 # Título principal com fundo escuro
 # =========================
-st.markdown('<div class="titulo-com-fundo">Análise Estatística e Espacial da Oferta de Imóveis Residenciais</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="titulo-com-fundo">Análise Estatística e Espacial da Oferta de Imóveis Residenciais</div>',
+    unsafe_allow_html=True
+)
 
 # =========================
 # Títulos de Mapa e Gráfico com fundo escuro e alinhados
@@ -148,28 +157,36 @@ grafico_tipo = st.sidebar.selectbox(
     key="grafico_selectbox"
 )
 
-# Exemplo de métrica para garantir que a sidebar sempre tenha conteúdo
+# Exemplo de métricas para garantir que a sidebar sempre tenha conteúdo
 st.sidebar.markdown("## 📊 Estatísticas")
 st.sidebar.markdown("🔢 Imóveis encontrados: --")
 st.sidebar.markdown("📈 Média: --")
-
 
 # =========================
 # Funções de carga de dados
 # =========================
 @st.cache_data(show_spinner=True)
 def load_df(path: str) -> pd.DataFrame:
-    df = pd.read_excel(path)
-    df.columns = df.columns.str.strip()
-    df = df.dropna(subset=["latitude", "longitude"])
-    if "Tamanho(m²)" in df.columns and (df["Tamanho(m²)"] > 0).any():
-        df["valor_m2"] = df["Preço"] / df["Tamanho(m²)"]
-    return df
+    try:
+        df = pd.read_excel(path)
+        df.columns = df.columns.str.strip()
+        df = df.dropna(subset=["latitude", "longitude"])
+        if "Tamanho(m²)" in df.columns and (df["Tamanho(m²)"] > 0).any():
+            df["valor_m2"] = df["Preço"] / df["Tamanho(m²)"]
+        return df
+    except Exception as e:
+        st.error(f"Erro ao carregar dados: {e}")
+        return pd.DataFrame()
 
 @st.cache_data(show_spinner=True)
 def load_bairros(path: str) -> gpd.GeoDataFrame:
-    gdf = gpd.read_file(path)
-    return gdf.to_crs("EPSG:4326")
+    try:
+        gdf = gpd.read_file(path)
+        gdf.columns = gdf.columns.str.strip()
+        return gdf
+    except Exception as e:
+        st.error(f"Erro ao carregar shapefile: {e}")
+        return gpd.GeoDataFrame()
 
 # =========================
 # Carregar dados com proteção
@@ -205,6 +222,7 @@ if not data_ok:
 access_token = "ZK6EgfhFT6px8F8MsRfOp2S5aUMPOvNr5CEEtLmjOYjHDC2MzgI0ZJ1cJjj0C98Y"
 tiles_url = f"https://tile.jawg.io/jawg-dark/{{z}}/{{x}}/{{y}}{{r}}.png?access-token={access_token}"
 attr = '<a href="https://jawg.io" target="_blank">&copy; <b>Jawg</b>Maps</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+
 # =========================
 # Paleta e faixas para mapa
 # =========================
@@ -298,6 +316,7 @@ def style_axes(ax):
     ax.tick_params(colors="white")
 
 currency_formatter = FuncFormatter(lambda x, pos: f"R$ {x:,.0f}".replace(",", "."))
+
 # --- Mapa (coluna esquerda) ---
 with col_map:
     m = folium.Map(
@@ -399,7 +418,6 @@ with col_map:
     elif tipo_mapa == "Calor":
         HeatMap(df_filtrado[["latitude", "longitude"]].values, radius=15).add_to(m)
 
-    # ✅ chamada mínima para evitar atualização constante
     st_folium(m, height=480)
 
 # --- Gráfico (coluna direita) ---
@@ -425,46 +443,6 @@ with col_chart:
             crs="EPSG:4326",
         )
         gdf_join = gpd.sjoin(
-            gdf_imoveis,
-            gdf_bairros[["geometry", "NOME"]],
-            how="left",
-            predicate="within"
-        )
-        media_bairro = (
-            gdf_join.groupby("NOME")[coluna_valor]
-            .mean()
-            .sort_values(ascending=False)
-            .head(15)
-        )
-
-        fig, ax = plt.subplots(figsize=(5, 4.5))
-        fig.patch.set_facecolor("#111111")
-        ax.set_facecolor("#111111")
-        media_bairro.plot(kind="barh", ax=ax, color="#00CED1")
-        ax.set_title(f"Média de {tipo_estatistica} por bairro (top 15)", fontsize=11, pad=6)
-        ax.set_xlabel("Valor médio (R$)")
-        ax.xaxis.set_major_formatter(currency_formatter)
-        ax.set_yticks(range(len(media_bairro.index)))
-        ax.set_yticklabels(media_bairro.index)
-        ax.invert_yaxis()
-        style_axes(ax)
-        fig.tight_layout()
-
-    elif grafico_tipo == "Boxplot por tipo":
-        fig, ax = plt.subplots(figsize=(5, 4.5))
-        fig.patch.set_facecolor("#111111")
-        ax.set_facecolor("#111111")
-        sns.boxplot(data=df_filtrado, x="Tipo", y=coluna_valor, ax=ax, palette="Set2")
-        ax.set_title(f"Distribuição de {tipo_estatistica} por tipo de imóvel", fontsize=11, pad=6)
-        ax.set_xlabel("Tipo de imóvel")
-        ax.set_ylabel("Valor (R$)")
-        ax.tick_params(axis="x", rotation=30)
-        ax.yaxis.set_major_formatter(currency_formatter)
-        style_axes(ax)
-        fig.tight_layout()
-
-    if fig is not None:
-        st.pyplot(fig, clear_figure=True)
 
 # =========================
 # Ajuste fino de espaçamento
@@ -472,9 +450,12 @@ with col_chart:
 st.markdown(
     """
     <style>
+    /* Ajuste de espaçamento entre colunas */
     .stColumns { gap: 0.25rem !important; }
-    .st-emotion-cache-1jicfl2, 
-    .st-emotion-cache-13dfmoy, 
+
+    /* Remove margens/paddings extras em alguns blocos */
+    .st-emotion-cache-1jicfl2,
+    .st-emotion-cache-13dfmoy,
     .st-emotion-cache-1v0mbdj {
         margin: 0 !important;
         padding: 0 !important;
