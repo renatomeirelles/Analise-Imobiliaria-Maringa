@@ -30,7 +30,7 @@ st.markdown("""
 <style>
 /* Layout geral */
 .block-container {
-    padding-top: 0.5rem;
+    padding-top: 2.5rem;  /* aumentei o espaço superior */
     padding-bottom: 0.5rem;
     max-width: 1400px;
 }
@@ -66,12 +66,13 @@ h1, h2, h3 {
 /* Título principal com fundo escuro */
 .titulo-com-fundo {
     background-color: #111;
-    padding: 0.6rem 1rem;
+    padding: 1rem 1rem;   /* aumentei o padding para dar mais altura */
     border-radius: 6px;
     text-align: center;
     color: white;
     font-weight: 700;
     font-size: 28px;
+    margin-top: 1rem;     /* adiciona espaço acima do título */
     margin-bottom: 0.8rem;
 }
 
@@ -93,6 +94,7 @@ h1, h2, h3 {
 }
 </style>
 """, unsafe_allow_html=True)
+
 
 # =========================
 # Título principal com fundo escuro
