@@ -30,7 +30,7 @@ st.markdown("""
 <style>
 /* Layout geral */
 .block-container {
-    padding-top: 2.5rem;  /* aumentei o espaço superior */
+    padding-top: 2.5rem;  /* espaço superior para não cobrir título */
     padding-bottom: 0.5rem;
     max-width: 1400px;
 }
@@ -45,9 +45,15 @@ h1, h2, h3 {
     margin-bottom: 0.6rem;
 }
 
-/* Sidebar escura e métricas em branco */
+/* Sidebar fixa e escura */
 [data-testid="stSidebar"] {
     background-color: #111 !important;
+    position: fixed !important;   /* fixa a barra lateral */
+    top: 0;
+    left: 0;
+    height: 100%;
+    overflow-y: auto;             /* permite rolagem se necessário */
+    z-index: 100;                 /* garante que fique acima dos outros elementos */
 }
 .sidebar-metric {
     color: white !important;
@@ -55,7 +61,7 @@ h1, h2, h3 {
     font-weight: 500;
 }
 
-/* Esconde apenas a barra superior */
+/* Esconde apenas a barra superior (não afeta sidebar) */
 [data-testid="stToolbar"] {
     display: none !important;
 }
@@ -66,13 +72,13 @@ h1, h2, h3 {
 /* Título principal com fundo escuro */
 .titulo-com-fundo {
     background-color: #111;
-    padding: 1rem 1rem;   /* aumentei o padding para dar mais altura */
+    padding: 1rem 1rem;
     border-radius: 6px;
     text-align: center;
     color: white;
     font-weight: 700;
     font-size: 28px;
-    margin-top: 1rem;     /* adiciona espaço acima do título */
+    margin-top: 1rem;
     margin-bottom: 0.8rem;
 }
 
@@ -94,6 +100,7 @@ h1, h2, h3 {
 }
 </style>
 """, unsafe_allow_html=True)
+
 
 
 # =========================
