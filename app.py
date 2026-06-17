@@ -283,14 +283,14 @@ elif "condomínios" in tipo_estatistica.lower():
         df_filtrado = df_filtrado[df_filtrado["valor_m2"].notnull()]
     estatistica_norm = "preco_medio_por_m2_condominios" if "m²" in tipo_estatistica else "preco_medio_condominios"
 
-## =========================
+# =========================
 # Métricas (únicas, atualizadas pelos filtros)
 # =========================
 num_imoveis = len(df_filtrado)
 media_imoveis = df_filtrado[coluna_valor].mean() if num_imoveis else 0
 
 # =========================
-# Layout final: mapa à esquerda + filtros à direita (topo), gráfico abaixo
+# Layout final: mapa em cima, filtros à direita, gráfico abaixo
 # =========================
 
 # Função para estilo dos gráficos
@@ -309,6 +309,7 @@ currency_formatter = FuncFormatter(lambda x, pos: f"R$ {x:,.0f}".replace(",", ".
 col_map, col_filters = st.columns([8, 4], gap="small")
 
 with col_map:
+    st.markdown("### 🗺️ Mapa")  # título direto acima do mapa
     m = folium.Map(
         location=[-23.4205, -51.9331],
         zoom_start=12,
@@ -416,6 +417,8 @@ with col_filters:
     st.markdown(f'<div class="sidebar-metric">📈 Média ({tipo_estatistica}): R$ {media_imoveis:,.2f}</div>', unsafe_allow_html=True)
 
 # --- Linha inferior: gráfico ---
+st.markdown("### 📉 Gráfico")
+
 fig = None
 
 if grafico_tipo == "Histograma":
