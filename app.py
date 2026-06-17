@@ -284,13 +284,18 @@ elif "condomínios" in tipo_estatistica.lower():
     estatistica_norm = "preco_medio_por_m2_condominios" if "m²" in tipo_estatistica else "preco_medio_condominios"
 
 # =========================
-# Métricas (únicas, atualizadas pelos filtros)
+# Métricas (atualiza painel de filtros)
 # =========================
 num_imoveis = len(df_filtrado)
 media_imoveis = df_filtrado[coluna_valor].mean() if num_imoveis else 0
 
+with col_filters:
+    st.markdown("## 📊 Estatísticas")
+    st.markdown(f'<div class="sidebar-metric">🔢 Imóveis encontrados: {num_imoveis}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="sidebar-metric">📈 Média ({tipo_estatistica}): R$ {media_imoveis:,.2f}</div>', unsafe_allow_html=True)
+
 # =========================
-# Layout final: mapa grande no topo, filtros abaixo, gráfico no fim
+# Layout em duas colunas: mapa (esquerda) + gráfico (direita)
 # =========================
 
 def style_axes(ax):
@@ -304,116 +309,156 @@ def style_axes(ax):
 
 currency_formatter = FuncFormatter(lambda x, pos: f"R$ {x:,.0f}".replace(",", "."))
 
-# --- Mapa ocupa toda a largura ---
-st.markdown("### 🗺️ Mapa")
-m = folium.Map(
-    location=[-23.4205, -51.9331],
-    zoom_start=12,
-    tiles=tiles_url,
-    attr=attr,
-    control_scale=True
-)
+col_map, col_chart = st.columns([7, 5], gap="small")
 
-# (todo o código de renderização do mapa igual ao que você já tinha)
-st_folium(m, height=480)
-
-# --- Filtros e estatísticas abaixo do mapa ---
-st.markdown("### 🎛️ Filtros e Estatísticas")
-col_filters1, col_filters2 = st.columns([6, 6], gap="small")
-
-with col_filters1:
-    tipo_estatistica = st.selectbox(
-        "Selecione a estatística:",
-        [
-            "Preço médio total",
-            "Preço médio por m²",
-            "Preço médio apartamentos",
-            "Preço médio por m² apartamentos",
-            "Preço médio casas",
-            "Preço médio por m² casas",
-            "Preço médio condomínios",
-            "Preço médio por m² condomínios",
-        ],
-        index=0,
-        key="estatistica_selectbox"
-    )
-    tipo_mapa = st.selectbox(
-        "Selecione o tipo de mapa:",
-        ["Coroplético", "Pontos", "Cluster", "Calor"],
-        index=0,
-        key="mapa_selectbox"
+# --- Mapa ---
+with col_map:
+    st.markdown("### 🗺️ Mapa")
+    m = folium.Map(
+        location=[-23.4205, -51.9331],
+        zoom_start=12,
+        tiles=tiles_url,
+        attr=attr,
+        control_scale=True
     )
 
-with col_filters2:
-    grafico_tipo = st.selectbox(
-        "Selecione o gráfico:",
-        ["Histograma", "Barras por bairro", "Boxplot por tipo"],
-        index=0,
-        key="grafico_selectbox"
-    )
-    st.markdown("## 📊 Estatísticas")
-    st.markdown(f'<div class="sidebar-metric">🔢 Imóveis encontrados: {num_imoveis}</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="sidebar-metric">📈 Média ({tipo_estatistica}): R$ {media_imoveis:,.2f}</div>', unsafe_allow_html=True)
+    bins = faixas_dict.get(estatistica_norm, faixas_base['preco'])
 
-# --- Gráfico abaixo ---
-st.markdown("### 📉 Gráfico")
-fig = None
+    if tipo_mapa == "Coroplético":
+        gdf_imoveis = gpd.GeoDataFrame(
+            df_filtrado,
+            geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
+            crs="EPSG:4326",
+        )
+        gdf_join = gpd.sjoin(
+            gdf_imoveis,
+            gdf_bairros[["geometry", "NOME"]],
+            how="left",
+            predicate="within"
+        )
 
-if grafico_tipo == "Histograma":
-    fig, ax = plt.subplots(figsize=(7, 4))
-    fig.patch.set_facecolor("#111111")
-    ax.set_facecolor("#111111")
-    ax.hist(df_filtrado[coluna_valor], bins=30, color="#00CED1", edgecolor="white")
-    ax.set_title(f"Distribuição de {tipo_estatistica}", fontsize=11, pad=6)
-    ax.set_xlabel("Valor (R$)")
-    ax.set_ylabel("Quantidade de imóveis")
-    ax.xaxis.set_major_formatter(currency_formatter)
-    style_axes(ax)
-    fig.tight_layout()
+        preco_bairro = (
+            gdf_join.groupby("NOME")[coluna_valor]
+            .mean()
+            .reset_index()
+        )
+        preco_bairro.columns = ["Bairro", "media"]
 
-elif grafico_tipo == "Barras por bairro":
-    gdf_imoveis = gpd.GeoDataFrame(
-        df_filtrado,
-        geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
-        crs="EPSG:4326"
-    )
-    gdf_join = gpd.sjoin(
-        gdf_imoveis,
-        gdf_bairros[["geometry", "NOME"]],
-        how="left",
-        predicate="within"
-    )
-    media_bairro = (
-        gdf_join.groupby("NOME")[coluna_valor]
-        .mean()
-        .sort_values(ascending=False)
-        .head(15)
-    )
-    fig, ax = plt.subplots(figsize=(7, 4))
-    fig.patch.set_facecolor("#111111")
-    ax.set_facecolor("#111111")
-    media_bairro.plot(kind="barh", ax=ax, color="#00CED1")
-    ax.set_title(f"Média de {tipo_estatistica} por bairro (top 15)", fontsize=11, pad=6)
-    ax.set_xlabel("Valor médio (R$)")
-    ax.xaxis.set_major_formatter(currency_formatter)
-    ax.set_yticks(range(len(media_bairro.index)))
-    ax.set_yticklabels(media_bairro.index)
-    ax.invert_yaxis()
-    style_axes(ax)
-    fig.tight_layout()
+        gdf_plot = gdf_bairros.merge(preco_bairro, left_on="NOME", right_on="Bairro", how="left")
 
-elif grafico_tipo == "Boxplot por tipo":
-    fig, ax = plt.subplots(figsize=(7, 4))
-    fig.patch.set_facecolor("#111111")
-    ax.set_facecolor("#111111")
-    sns.boxplot(data=df_filtrado, x="Tipo", y=coluna_valor, ax=ax, palette="Set2")
-    ax.set_title(f"Distribuição de {tipo_estatistica} por tipo de imóvel", fontsize=11, pad=6)
-    ax.set_xlabel("Tipo de imóvel")
-    ax.set_ylabel("Valor (R$)")
-    ax.tick_params(axis="x", rotation=30)
-    ax.yaxis.set_major_formatter(currency_formatter)
-    style_axes(ax)
-    fig.tight_layout()
+        def cor_por_faixa(valor):
+            if pd.isna(valor) or valor <= 0:
+                return "#2b2b2b"
+            for i in range(len(bins) - 1):
+                if bins[i] <= valor <= bins[i + 1]:
+                    return cores[i]
+            return cores[-1]
 
-if fig is not None:
-    st.pyplot(fig, clear_figure=True)
+        gdf_plot["cor"] = gdf_plot["media"].apply(cor_por_faixa)
+
+        folium.GeoJson(
+            gdf_plot,
+            style_function=lambda feature: {
+                "fillColor": feature["properties"]["cor"],
+                "color": "#3a3a3a",
+                "weight": 0.6,
+                "fillOpacity": 0.75,
+            },
+            tooltip=folium.GeoJsonTooltip(
+                fields=["NOME", "media"],
+                aliases=["Bairro", "Média"],
+                localize=True,
+            ),
+        ).add_to(m)
+
+    elif tipo_mapa == "Pontos":
+        for _, row in df_filtrado.iterrows():
+            valor_popup = row[coluna_valor]
+            rotulo = "Preço por m²" if coluna_valor == "valor_m2" else "Preço"
+            folium.CircleMarker(
+                location=[row["latitude"], row["longitude"]],
+                radius=3,
+                color="#00CED1",
+                fill=True,
+                fill_color="#00CED1",
+                fill_opacity=0.6,
+                popup=f"{row.get('Tipo', 'Imóvel')} — {rotulo}: R$ {valor_popup:,.2f}",
+            ).add_to(m)
+
+    elif tipo_mapa == "Cluster":
+        cluster = MarkerCluster(control=False).add_to(m)
+        for _, row in df_filtrado.iterrows():
+            valor_popup = row[coluna_valor]
+            rotulo = "Preço por m²" if coluna_valor == "valor_m2" else "Preço"
+            folium.Marker(
+                location=[row["latitude"], row["longitude"]],
+                popup=f"{row.get('Tipo', 'Imóvel')} — {rotulo}: R$ {valor_popup:,.2f}",
+            ).add_to(cluster)
+
+    elif tipo_mapa == "Calor":
+        HeatMap(df_filtrado[["latitude", "longitude"]].values, radius=15).add_to(m)
+
+    st_folium(m, height=480)
+
+# --- Gráfico ---
+with col_chart:
+    st.markdown("### 📉 Gráfico")
+    fig = None
+
+    if grafico_tipo == "Histograma":
+        fig, ax = plt.subplots(figsize=(6, 4))
+        fig.patch.set_facecolor("#111111")
+        ax.set_facecolor("#111111")
+        ax.hist(df_filtrado[coluna_valor], bins=30, color="#00CED1", edgecolor="white")
+        ax.set_title(f"Distribuição de {tipo_estatistica}", fontsize=11, pad=6)
+        ax.set_xlabel("Valor (R$)")
+        ax.set_ylabel("Quantidade de imóveis")
+        ax.xaxis.set_major_formatter(currency_formatter)
+        style_axes(ax)
+        fig.tight_layout()
+
+    elif grafico_tipo == "Barras por bairro":
+        gdf_imoveis = gpd.GeoDataFrame(
+            df_filtrado,
+            geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
+            crs="EPSG:4326"
+        )
+        gdf_join = gpd.sjoin(
+            gdf_imoveis,
+            gdf_bairros[["geometry", "NOME"]],
+            how="left",
+            predicate="within"
+        )
+        media_bairro = (
+            gdf_join.groupby("NOME")[coluna_valor]
+            .mean()
+            .sort_values(ascending=False)
+            .head(15)
+        )
+        fig, ax = plt.subplots(figsize=(6, 4))
+        fig.patch.set_facecolor("#111111")
+        ax.set_facecolor("#111111")
+        media_bairro.plot(kind="barh", ax=ax, color="#00CED1")
+        ax.set_title(f"Média de {tipo_estatistica} por bairro (top 15)", fontsize=11, pad=6)
+        ax.set_xlabel("Valor médio (R$)")
+        ax.xaxis.set_major_formatter(currency_formatter)
+        ax.invert_yaxis()
+        style_axes(ax)
+        fig.tight_layout()
+
+    elif grafico_tipo == "Boxplot por tipo":
+        fig, ax = plt.subplots(figsize=(6, 4))
+        fig.patch.set_facecolor("#111111")
+        ax.set_facecolor("#111111")
+        sns.boxplot(data=df_filtrado, x="Tipo", y=coluna_valor, ax=ax, palette="Set2")
+        ax.set_title(f"Distribuição de {tipo_estatistica} por tipo de imóvel", fontsize=11, pad=6)
+        ax.set_xlabel("Tipo de imóvel")
+        ax.set_ylabel("Valor (R$)")
+        ax.tick_params(axis="x", rotation=30)
+        ax.yaxis.set_major_formatter(currency_formatter)
+        style_axes(ax)
+        fig.tight_layout()
+
+    if fig is not None:
+        st.pyplot(fig, clear_figure=True)
+
