@@ -30,7 +30,7 @@ st.markdown("""
 <style>
 /* Layout geral */
 .block-container {
-    padding-top: 2.5rem;   /* espaço superior para não cobrir título */
+    padding-top: 2.5rem;  /* espaço superior para não cobrir título */
     padding-bottom: 0.5rem;
     max-width: 1400px;
 }
@@ -45,23 +45,14 @@ h1, h2, h3 {
     margin-bottom: 0.6rem;
 }
 
-/* Sidebar escura (sem esconder ou fixar) */
-[data-testid="stSidebar"] {
-    background-color: #111 !important;
-    color: white !important;
-}
-[data-testid="stSidebar"] * {
-    color: white !important;   /* força texto branco dentro da sidebar */
-}
-
-/* Métricas na sidebar */
+/* Painel de filtros (coluna direita) */
 .sidebar-metric {
     color: white !important;
     font-size: 15px;
     font-weight: 500;
 }
 
-/* Esconde apenas a barra superior (toolbar) */
+/* Esconde apenas a barra superior */
 [data-testid="stToolbar"] {
     display: none !important;
 }
@@ -72,7 +63,7 @@ h1, h2, h3 {
 /* Título principal com fundo escuro */
 .titulo-com-fundo {
     background-color: #111;
-    padding: 1rem;
+    padding: 1rem 1rem;
     border-radius: 6px;
     text-align: center;
     color: white;
@@ -120,47 +111,50 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =========================
-# Sidebar com filtros (corrigido)
+# Filtros (corrigido, agora em coluna à direita)
 # =========================
-st.sidebar.title("🎛️ Filtros")
+col_map, col_chart, col_filters = st.columns([6, 6, 4], gap="small")
 
-# Filtro de estatística
-tipo_estatistica = st.sidebar.selectbox(
-    "Selecione a estatística:",
-    [
-        "Preço médio total",
-        "Preço médio por m²",
-        "Preço médio apartamentos",
-        "Preço médio por m² apartamentos",
-        "Preço médio casas",
-        "Preço médio por m² casas",
-        "Preço médio condomínios",
-        "Preço médio por m² condomínios",
-    ],
-    index=0,
-    key="estatistica_selectbox"
-)
+with col_filters:
+    st.markdown("## 🎛️ Filtros")
 
-# Filtro de mapa
-tipo_mapa = st.sidebar.selectbox(
-    "Selecione o tipo de mapa:",
-    ["Coroplético", "Pontos", "Cluster", "Calor"],
-    index=0,
-    key="mapa_selectbox"
-)
+    # Filtro de estatística
+    tipo_estatistica = st.selectbox(
+        "Selecione a estatística:",
+        [
+            "Preço médio total",
+            "Preço médio por m²",
+            "Preço médio apartamentos",
+            "Preço médio por m² apartamentos",
+            "Preço médio casas",
+            "Preço médio por m² casas",
+            "Preço médio condomínios",
+            "Preço médio por m² condomínios",
+        ],
+        index=0,
+        key="estatistica_selectbox"
+    )
 
-# Filtro de gráfico
-grafico_tipo = st.sidebar.selectbox(
-    "Selecione o gráfico:",
-    ["Histograma", "Barras por bairro", "Boxplot por tipo"],
-    index=0,
-    key="grafico_selectbox"
-)
+    # Filtro de mapa
+    tipo_mapa = st.selectbox(
+        "Selecione o tipo de mapa:",
+        ["Coroplético", "Pontos", "Cluster", "Calor"],
+        index=0,
+        key="mapa_selectbox"
+    )
 
-# Exemplo de métricas para garantir que a sidebar sempre tenha conteúdo
-st.sidebar.markdown("## 📊 Estatísticas")
-st.sidebar.markdown("🔢 Imóveis encontrados: --")
-st.sidebar.markdown("📈 Média: --")
+    # Filtro de gráfico
+    grafico_tipo = st.selectbox(
+        "Selecione o gráfico:",
+        ["Histograma", "Barras por bairro", "Boxplot por tipo"],
+        index=0,
+        key="grafico_selectbox"
+    )
+
+    # Métricas (texto branco)
+    st.markdown("## 📊 Estatísticas")
+    st.markdown(f'<div class="sidebar-metric">🔢 Imóveis encontrados: --</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="sidebar-metric">📈 Média: --</div>', unsafe_allow_html=True)
 
 # =========================
 # Funções de carga de dados
@@ -248,58 +242,54 @@ faixas_dict = {
 }
 
 # =========================
-# Filtros (corrigido, agora em coluna à direita)
+# Filtros e coluna alvo
 # =========================
-col_map, col_chart, col_filters = st.columns([6, 6, 4], gap="small")
+estatistica_norm = "preco_medio_total"
 
-with col_filters:
-    st.markdown("## 🎛️ Filtros")
+if tipo_estatistica == "Preço médio total":
+    df_filtrado = df.copy()
+    coluna_valor = "Preço"
+    estatistica_norm = "preco_medio_total"
 
-    # Filtro de estatística
-    tipo_estatistica = st.selectbox(
-        "Selecione a estatística:",
-        [
-            "Preço médio total",
-            "Preço médio por m²",
-            "Preço médio apartamentos",
-            "Preço médio por m² apartamentos",
-            "Preço médio casas",
-            "Preço médio por m² casas",
-            "Preço médio condomínios",
-            "Preço médio por m² condomínios",
-        ],
-        index=0,
-        key="estatistica_selectbox"
-    )
+elif tipo_estatistica == "Preço médio por m²":
+    if "valor_m2" not in df.columns:
+        st.warning("Não foi possível calcular valor por m². Verifique 'Tamanho(m²)'.")
+        df_filtrado = df.copy()
+        coluna_valor = "Preço"
+        estatistica_norm = "preco_medio_total"
+    else:
+        df_filtrado = df[df["valor_m2"].notnull()]
+        coluna_valor = "valor_m2"
+        estatistica_norm = "preco_medio_por_m2"
 
-    # Filtro de mapa
-    tipo_mapa = st.selectbox(
-        "Selecione o tipo de mapa:",
-        ["Coroplético", "Pontos", "Cluster", "Calor"],
-        index=0,
-        key="mapa_selectbox"
-    )
+elif "apartamentos" in tipo_estatistica.lower():
+    df_filtrado = df[df["Tipo"].str.lower().str.contains("apartamento", na=False)]
+    coluna_valor = "valor_m2" if "m²" in tipo_estatistica else "Preço"
+    if coluna_valor == "valor_m2":
+        df_filtrado = df_filtrado[df_filtrado["valor_m2"].notnull()]
+    estatistica_norm = "preco_medio_por_m2_apartamentos" if "m²" in tipo_estatistica else "preco_medio_apartamentos"
 
-    # Filtro de gráfico
-    grafico_tipo = st.selectbox(
-        "Selecione o gráfico:",
-        ["Histograma", "Barras por bairro", "Boxplot por tipo"],
-        index=0,
-        key="grafico_selectbox"
-    )
+elif "casas" in tipo_estatistica.lower():
+    df_filtrado = df[df["Tipo"].str.lower().str.contains("casa", na=False)]
+    coluna_valor = "valor_m2" if "m²" in tipo_estatistica else "Preço"
+    if coluna_valor == "valor_m2":
+        df_filtrado = df_filtrado[df_filtrado["valor_m2"].notnull()]
+    estatistica_norm = "preco_medio_por_m2_casas" if "m²" in tipo_estatistica else "preco_medio_casas"
 
-    # Métricas
-    st.markdown("## 📊 Estatísticas")
-    st.markdown(f'<div class="sidebar-metric">🔢 Imóveis encontrados: {num_imoveis}</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="sidebar-metric">📈 Média ({tipo_estatistica}): R$ {media_imoveis:,.2f}</div>', unsafe_allow_html=True)
+elif "condomínios" in tipo_estatistica.lower():
+    df_filtrado = df[df["Tipo"].str.lower().str.contains("condomínio", na=False)]
+    coluna_valor = "valor_m2" if "m²" in tipo_estatistica else "Preço"
+    if coluna_valor == "valor_m2":
+        df_filtrado = df_filtrado[df_filtrado["valor_m2"].notnull()]
+    estatistica_norm = "preco_medio_por_m2_condominios" if "m²" in tipo_estatistica else "preco_medio_condominios"
 
 # =========================
-# Métricas na sidebar (texto branco)
+# Métricas (atualiza painel de filtros)
 # =========================
 num_imoveis = len(df_filtrado)
 media_imoveis = df_filtrado[coluna_valor].mean() if num_imoveis else 0
 
-with st.sidebar:
+with col_filters:
     st.markdown("## 📊 Estatísticas")
     st.markdown(f'<div class="sidebar-metric">🔢 Imóveis encontrados: {num_imoveis}</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="sidebar-metric">📈 Média ({tipo_estatistica}): R$ {media_imoveis:,.2f}</div>', unsafe_allow_html=True)
@@ -307,9 +297,6 @@ with st.sidebar:
 # =========================
 # Layout em duas colunas: mapa (maior) + gráfico (menor)
 # =========================
-col_map, col_chart = st.columns([7, 5], gap="small")
-
-# Função para estilo dos gráficos
 def style_axes(ax):
     ax.title.set_color("white")
     ax.xaxis.label.set_color("white")
@@ -424,8 +411,7 @@ with col_map:
 
     st_folium(m, height=480)
 
-
-# --- Gráfico (coluna direita) ---
+# --- Gráfico (coluna central) ---
 with col_chart:
     fig = None
 
@@ -441,6 +427,11 @@ with col_chart:
         style_axes(ax)
         fig.tight_layout()
 
+    elif grafico_tipo == "Barras por bairro":
+        gdf_imoveis = gpd.GeoDataFrame(
+            df_filtrado,
+            geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
+            crs="EPSG:4326",
     elif grafico_tipo == "Barras por bairro":
         gdf_imoveis = gpd.GeoDataFrame(
             df_filtrado,
