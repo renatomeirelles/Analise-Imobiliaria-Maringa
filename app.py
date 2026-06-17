@@ -411,7 +411,7 @@ with col_map:
 
     st_folium(m, height=480)
 
-# --- Gráfico (coluna central) ---
+# --- Gráfico (coluna direita) ---
 with col_chart:
     fig = None
 
@@ -431,12 +431,7 @@ with col_chart:
         gdf_imoveis = gpd.GeoDataFrame(
             df_filtrado,
             geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
-            crs="EPSG:4326",
-    elif grafico_tipo == "Barras por bairro":
-        gdf_imoveis = gpd.GeoDataFrame(
-            df_filtrado,
-            geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
-            crs="EPSG:4326",
+            crs="EPSG:4326"
         )
         gdf_join = gpd.sjoin(
             gdf_imoveis,
@@ -480,4 +475,5 @@ with col_chart:
 
     if fig is not None:
         st.pyplot(fig, clear_figure=True)
+
 
