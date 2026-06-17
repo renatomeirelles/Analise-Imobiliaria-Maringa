@@ -295,7 +295,7 @@ with col_filters:
     st.markdown(f'<div class="sidebar-metric">📈 Média ({tipo_estatistica}): R$ {media_imoveis:,.2f}</div>', unsafe_allow_html=True)
 
 # =========================
-# Layout: mapa em cima, gráfico embaixo
+# Layout: mapa à esquerda + filtros à direita (topo), gráfico abaixo
 # =========================
 
 # Função para estilo dos gráficos
@@ -310,7 +310,7 @@ def style_axes(ax):
 
 currency_formatter = FuncFormatter(lambda x, pos: f"R$ {x:,.0f}".replace(",", "."))
 
-# --- Mapa (linha superior) ---
+# --- Linha superior: mapa + filtros ---
 col_map, col_filters = st.columns([8, 4], gap="small")
 
 with col_map:
@@ -415,11 +415,16 @@ with col_map:
 
     st_folium(m, height=480)
 
-# --- Gráfico (linha inferior, ocupa toda largura) ---
+with col_filters:
+    st.markdown("## 📊 Estatísticas")
+    st.markdown(f'<div class="sidebar-metric">🔢 Imóveis encontrados: {num_imoveis}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="sidebar-metric">📈 Média ({tipo_estatistica}): R$ {media_imoveis:,.2f}</div>', unsafe_allow_html=True)
+
+# --- Linha inferior: gráfico ---
 fig = None
 
 if grafico_tipo == "Histograma":
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(7, 4))  # gráfico um pouco menor
     fig.patch.set_facecolor("#111111")
     ax.set_facecolor("#111111")
     ax.hist(df_filtrado[coluna_valor], bins=30, color="#00CED1", edgecolor="white")
@@ -450,7 +455,7 @@ elif grafico_tipo == "Barras por bairro":
         .head(15)
     )
 
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(7, 4))  # gráfico um pouco menor
     fig.patch.set_facecolor("#111111")
     ax.set_facecolor("#111111")
     media_bairro.plot(kind="barh", ax=ax, color="#00CED1")
@@ -464,7 +469,7 @@ elif grafico_tipo == "Barras por bairro":
     fig.tight_layout()
 
 elif grafico_tipo == "Boxplot por tipo":
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(7, 4))  # gráfico um pouco menor
     fig.patch.set_facecolor("#111111")
     ax.set_facecolor("#111111")
     sns.boxplot(data=df_filtrado, x="Tipo", y=coluna_valor, ax=ax, palette="Set2")
@@ -478,4 +483,3 @@ elif grafico_tipo == "Boxplot por tipo":
 
 if fig is not None:
     st.pyplot(fig, clear_figure=True)
-
