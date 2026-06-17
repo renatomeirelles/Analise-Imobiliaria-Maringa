@@ -295,8 +295,10 @@ with col_filters:
     st.markdown(f'<div class="sidebar-metric">📈 Média ({tipo_estatistica}): R$ {media_imoveis:,.2f}</div>', unsafe_allow_html=True)
 
 # =========================
-# Layout em duas colunas: mapa (maior) + gráfico (menor)
+# Layout: mapa em cima, gráfico embaixo
 # =========================
+
+# Função para estilo dos gráficos
 def style_axes(ax):
     ax.title.set_color("white")
     ax.xaxis.label.set_color("white")
@@ -308,7 +310,9 @@ def style_axes(ax):
 
 currency_formatter = FuncFormatter(lambda x, pos: f"R$ {x:,.0f}".replace(",", "."))
 
-# --- Mapa (coluna esquerda) ---
+# --- Mapa (linha superior) ---
+col_map, col_filters = st.columns([8, 4], gap="small")
+
 with col_map:
     m = folium.Map(
         location=[-23.4205, -51.9331],
@@ -411,69 +415,67 @@ with col_map:
 
     st_folium(m, height=480)
 
-# --- Gráfico (coluna direita) ---
-with col_chart:
-    fig = None
+# --- Gráfico (linha inferior, ocupa toda largura) ---
+fig = None
 
-    if grafico_tipo == "Histograma":
-        fig, ax = plt.subplots(figsize=(5, 4.5))
-        fig.patch.set_facecolor("#111111")
-        ax.set_facecolor("#111111")
-        ax.hist(df_filtrado[coluna_valor], bins=30, color="#00CED1", edgecolor="white")
-        ax.set_title(f"Distribuição de {tipo_estatistica}", fontsize=11, pad=6)
-        ax.set_xlabel("Valor (R$)")
-        ax.set_ylabel("Quantidade de imóveis")
-        ax.xaxis.set_major_formatter(currency_formatter)
-        style_axes(ax)
-        fig.tight_layout()
+if grafico_tipo == "Histograma":
+    fig, ax = plt.subplots(figsize=(8, 5))
+    fig.patch.set_facecolor("#111111")
+    ax.set_facecolor("#111111")
+    ax.hist(df_filtrado[coluna_valor], bins=30, color="#00CED1", edgecolor="white")
+    ax.set_title(f"Distribuição de {tipo_estatistica}", fontsize=11, pad=6)
+    ax.set_xlabel("Valor (R$)")
+    ax.set_ylabel("Quantidade de imóveis")
+    ax.xaxis.set_major_formatter(currency_formatter)
+    style_axes(ax)
+    fig.tight_layout()
 
-    elif grafico_tipo == "Barras por bairro":
-        gdf_imoveis = gpd.GeoDataFrame(
-            df_filtrado,
-            geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
-            crs="EPSG:4326"
-        )
-        gdf_join = gpd.sjoin(
-            gdf_imoveis,
-            gdf_bairros[["geometry", "NOME"]],
-            how="left",
-            predicate="within"
-        )
+elif grafico_tipo == "Barras por bairro":
+    gdf_imoveis = gpd.GeoDataFrame(
+        df_filtrado,
+        geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
+        crs="EPSG:4326"
+    )
+    gdf_join = gpd.sjoin(
+        gdf_imoveis,
+        gdf_bairros[["geometry", "NOME"]],
+        how="left",
+        predicate="within"
+    )
 
-        media_bairro = (
-            gdf_join.groupby("NOME")[coluna_valor]
-            .mean()
-            .sort_values(ascending=False)
-            .head(15)
-        )
+    media_bairro = (
+        gdf_join.groupby("NOME")[coluna_valor]
+        .mean()
+        .sort_values(ascending=False)
+        .head(15)
+    )
 
-        fig, ax = plt.subplots(figsize=(5, 4.5))
-        fig.patch.set_facecolor("#111111")
-        ax.set_facecolor("#111111")
-        media_bairro.plot(kind="barh", ax=ax, color="#00CED1")
-        ax.set_title(f"Média de {tipo_estatistica} por bairro (top 15)", fontsize=11, pad=6)
-        ax.set_xlabel("Valor médio (R$)")
-        ax.xaxis.set_major_formatter(currency_formatter)
-        ax.set_yticks(range(len(media_bairro.index)))
-        ax.set_yticklabels(media_bairro.index)
-        ax.invert_yaxis()
-        style_axes(ax)
-        fig.tight_layout()
+    fig, ax = plt.subplots(figsize=(8, 5))
+    fig.patch.set_facecolor("#111111")
+    ax.set_facecolor("#111111")
+    media_bairro.plot(kind="barh", ax=ax, color="#00CED1")
+    ax.set_title(f"Média de {tipo_estatistica} por bairro (top 15)", fontsize=11, pad=6)
+    ax.set_xlabel("Valor médio (R$)")
+    ax.xaxis.set_major_formatter(currency_formatter)
+    ax.set_yticks(range(len(media_bairro.index)))
+    ax.set_yticklabels(media_bairro.index)
+    ax.invert_yaxis()
+    style_axes(ax)
+    fig.tight_layout()
 
-    elif grafico_tipo == "Boxplot por tipo":
-        fig, ax = plt.subplots(figsize=(5, 4.5))
-        fig.patch.set_facecolor("#111111")
-        ax.set_facecolor("#111111")
-        sns.boxplot(data=df_filtrado, x="Tipo", y=coluna_valor, ax=ax, palette="Set2")
-        ax.set_title(f"Distribuição de {tipo_estatistica} por tipo de imóvel", fontsize=11, pad=6)
-        ax.set_xlabel("Tipo de imóvel")
-        ax.set_ylabel("Valor (R$)")
-        ax.tick_params(axis="x", rotation=30)
-        ax.yaxis.set_major_formatter(currency_formatter)
-        style_axes(ax)
-        fig.tight_layout()
+elif grafico_tipo == "Boxplot por tipo":
+    fig, ax = plt.subplots(figsize=(8, 5))
+    fig.patch.set_facecolor("#111111")
+    ax.set_facecolor("#111111")
+    sns.boxplot(data=df_filtrado, x="Tipo", y=coluna_valor, ax=ax, palette="Set2")
+    ax.set_title(f"Distribuição de {tipo_estatistica} por tipo de imóvel", fontsize=11, pad=6)
+    ax.set_xlabel("Tipo de imóvel")
+    ax.set_ylabel("Valor (R$)")
+    ax.tick_params(axis="x", rotation=30)
+    ax.yaxis.set_major_formatter(currency_formatter)
+    style_axes(ax)
+    fig.tight_layout()
 
-    if fig is not None:
-        st.pyplot(fig, clear_figure=True)
-
+if fig is not None:
+    st.pyplot(fig, clear_figure=True)
 
