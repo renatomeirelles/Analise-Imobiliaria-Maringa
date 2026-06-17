@@ -295,7 +295,7 @@ with col_filters:
     st.markdown(f'<div class="sidebar-metric">📈 Média ({tipo_estatistica}): R$ {media_imoveis:,.2f}</div>', unsafe_allow_html=True)
 
 # =========================
-# Layout: mapa à esquerda + filtros à direita (topo), gráfico abaixo
+# Layout final: mapa à esquerda + filtros à direita (topo), gráfico abaixo
 # =========================
 
 # Função para estilo dos gráficos
@@ -424,7 +424,7 @@ with col_filters:
 fig = None
 
 if grafico_tipo == "Histograma":
-    fig, ax = plt.subplots(figsize=(7, 4))  # gráfico um pouco menor
+    fig, ax = plt.subplots(figsize=(7, 4))  # gráfico menor
     fig.patch.set_facecolor("#111111")
     ax.set_facecolor("#111111")
     ax.hist(df_filtrado[coluna_valor], bins=30, color="#00CED1", edgecolor="white")
@@ -455,7 +455,7 @@ elif grafico_tipo == "Barras por bairro":
         .head(15)
     )
 
-    fig, ax = plt.subplots(figsize=(7, 4))  # gráfico um pouco menor
+    fig, ax = plt.subplots(figsize=(7, 4))  # gráfico menor
     fig.patch.set_facecolor("#111111")
     ax.set_facecolor("#111111")
     media_bairro.plot(kind="barh", ax=ax, color="#00CED1")
@@ -469,7 +469,7 @@ elif grafico_tipo == "Barras por bairro":
     fig.tight_layout()
 
 elif grafico_tipo == "Boxplot por tipo":
-    fig, ax = plt.subplots(figsize=(7, 4))  # gráfico um pouco menor
+    fig, ax = plt.subplots(figsize=(7, 4))  # gráfico menor
     fig.patch.set_facecolor("#111111")
     ax.set_facecolor("#111111")
     sns.boxplot(data=df_filtrado, x="Tipo", y=coluna_valor, ax=ax, palette="Set2")
