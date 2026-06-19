@@ -156,10 +156,7 @@ def gerar_mapa_calor(tipo):
 # Carregar série temporal IPTU/ITBI (planilha transposta)
 # =========================
 
-df_raw = pd.read_excel(
-    r"C:\Users\Renato\Desktop\Mestrado\Análise Imobiliaria\Analise-Imobiliaria-Maringa\data\serie historica iptu itbi.xlsx",
-    header=0
-)
+df_raw = pd.read_excel("data/serie historica iptu itbi.xlsx", header=0)
 
 # Transpor: anos viram índice, indicadores viram colunas
 df_final = df_raw.set_index('ANO').T.reset_index()
@@ -246,38 +243,38 @@ app.layout = dbc.Container([
         ], md=6),
     ], className="mb-4"),
 
- # Cards de estatísticas
-dbc.Row([
-    dbc.Col(
-        dbc.Card([
-            dbc.CardHeader("Resumo"),
-            dbc.CardBody([
-                html.P(id="info-filtro")   # <- ID para o resumo dinâmico, cada linha será um <p>
-            ])
-        ], color="secondary", outline=True),
-        md=4
-    ),
+    # Cards de estatísticas
+    dbc.Row([
+        dbc.Col(
+            dbc.Card([
+                dbc.CardHeader("Resumo"),
+                dbc.CardBody([
+                    html.P(id="info-filtro")   # <- ID para o resumo dinâmico
+                ])
+            ], color="secondary", outline=True),
+            md=4
+        ),
 
-    dbc.Col(
-        dbc.Card([
-            dbc.CardHeader("Previsão IPTU"),
-            dbc.CardBody([
-                html.P(id="previsao-iptu")   # <- ID para previsão IPTU
-            ])
-        ], color="info", outline=True),
-        md=4
-    ),
+        dbc.Col(
+            dbc.Card([
+                dbc.CardHeader("Previsão IPTU"),
+                dbc.CardBody([
+                    html.P(id="previsao-iptu")   # <- ID para previsão IPTU
+                ])
+            ], color="info", outline=True),
+            md=4
+        ),
 
-    dbc.Col(
-        dbc.Card([
-            dbc.CardHeader("Previsão ITBI"),
-            dbc.CardBody([
-                html.P(id="previsao-itbi")   # <- ID para previsão ITBI
-            ])
-        ], color="success", outline=True),
-        md=4
-    )
-], className="mb-4"),
+        dbc.Col(
+            dbc.Card([
+                dbc.CardHeader("Previsão ITBI"),
+                dbc.CardBody([
+                    html.P(id="previsao-itbi")   # <- ID para previsão ITBI
+                ])
+            ], color="success", outline=True),
+            md=4
+        )
+    ], className="mb-4"),
 
     # Mapa + gráfico de distribuição
     dbc.Row([
@@ -290,7 +287,6 @@ dbc.Row([
         dbc.Col(dcc.Graph(id="grafico-temporal"), md=12)
     ], className="mb-4")
 ], fluid=True)
-
 
 # =========================
 # Callback para atualizar mapa, estatísticas, gráfico e previsões ARIMA
