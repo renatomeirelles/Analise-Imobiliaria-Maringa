@@ -207,7 +207,7 @@ app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG])  # tema escu
 
 app.layout = dbc.Container([
     dbc.NavbarSimple(
-        brand="📊 Dashboard Imobiliário — Maringá",
+        brand="Análise Econométrica Espacial Imobiliário — Maringá",
         color="dark",
         dark=True,
         fluid=True
