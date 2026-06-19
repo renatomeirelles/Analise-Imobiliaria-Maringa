@@ -6,3 +6,4 @@ geopandas
 folium
 statsmodels
 gunicorn
+openpyxl
