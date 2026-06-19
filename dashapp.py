@@ -16,9 +16,7 @@ from statsmodels.tsa.arima.model import ARIMA
 # =========================
 # Carregar dados imobiliários
 # =========================
-df = pd.read_excel(
-    r"C:\Users\Renato\Desktop\Mestrado\Análise Imobiliaria\Analise-Imobiliaria-Maringa\data\imoveis_georreferenciados_novembro.xlsx"
-)
+df = pd.read_excel("data/imoveis_georreferenciados_novembro.xlsx")
 df.columns = df.columns.str.strip()
 df = df.dropna(subset=['latitude', 'longitude'])
 
@@ -33,9 +31,7 @@ gdf_imoveis = gpd.GeoDataFrame(
     crs="EPSG:4326"
 )
 
-gdf_bairros = gpd.read_file(
-    r"C:\Users\Renato\Desktop\Mestrado\Análise Imobiliaria\Analise-Imobiliaria-Maringa\data\municipio_completo.shp"
-).to_crs("EPSG:4326")
+gdf_bairros = gpd.read_file("data/municipio_completo.shp").to_crs("EPSG:4326")
 
 gdf_imoveis_bairros = gpd.sjoin(
     gdf_imoveis,
@@ -43,6 +39,7 @@ gdf_imoveis_bairros = gpd.sjoin(
     how="left",
     predicate="intersects"
 )
+
 # =========================
 # Função auxiliar de filtro
 # =========================
@@ -51,6 +48,7 @@ def filtrar_tipo(tipo):
         return gdf_imoveis_bairros.copy()
     else:
         return gdf_imoveis_bairros[gdf_imoveis_bairros["Tipo"] == tipo].copy()
+
 # =========================
 # Funções auxiliares de mapas
 # =========================
