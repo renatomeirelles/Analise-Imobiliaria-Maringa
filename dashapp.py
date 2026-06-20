@@ -189,19 +189,42 @@ def criar_mapa_base():
 # Funções ARIMA
 def prever_arima_iptu(df, steps=2):
     serie = df.set_index('ano')['IPTU']
+
     model = ARIMA(serie, order=(1,1,1))
     fit = model.fit()
+
     forecast = fit.forecast(steps=steps)
-    anos_future = list(range(df['ano'].max()+1, df['ano'].max()+1+steps))
-    return pd.DataFrame({'ano': anos_future, 'IPTU_prev': forecast.round(2)})
+
+    anos_future = list(range(df['ano'].max() + 1,
+                             df['ano'].max() + 1 + steps))
+
+    previsao = pd.DataFrame({
+        'ano': anos_future,
+        'IPTU_prev': forecast.round(2)
+    })
+
+    # Ajuste extraordinário de +30% para 2026 e anos seguintes
+    previsao.loc[previsao['ano'] >= 2026, 'IPTU_prev'] *= 1.30
+
+    return previsao
+
 
 def prever_arima_itbi(df, steps=2):
     serie = df.set_index('ano')['ITBI']
+
     model = ARIMA(serie, order=(1,1,1))
     fit = model.fit()
+
     forecast = fit.forecast(steps=steps)
-    anos_future = list(range(df['ano'].max()+1, df['ano'].max()+1+steps))
-    return pd.DataFrame({'ano': anos_future, 'ITBI_prev': forecast.round(2)})
+
+    anos_future = list(range(df['ano'].max() + 1,
+                             df['ano'].max() + 1 + steps))
+
+    return pd.DataFrame({
+        'ano': anos_future,
+        'ITBI_prev': forecast.round(2)
+    })
+
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG])  # tema escuro
 
@@ -212,6 +235,7 @@ app.layout = dbc.Container([
         dark=True,
         fluid=True
     ),
+])
 
     # Seletores
     dbc.Row([
