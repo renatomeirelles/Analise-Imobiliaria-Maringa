@@ -9,14 +9,20 @@ import plotly.express as px
 import unicodedata
 import warnings
 import dash_bootstrap_components as dbc
+import os
 warnings.filterwarnings("ignore")
 
 from statsmodels.tsa.arima.model import ARIMA
 
 # =========================
+# Caminho base do projeto
+# =========================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# =========================
 # Carregar dados imobiliários
 # =========================
-df = pd.read_excel("data/imoveis_georreferenciados_novembro.xlsx")
+df = pd.read_excel(os.path.join(BASE_DIR, "data", "imoveis_georreferenciados_novembro.xlsx"))
 df.columns = df.columns.str.strip()
 df = df.dropna(subset=['latitude', 'longitude'])
 
@@ -31,7 +37,7 @@ gdf_imoveis = gpd.GeoDataFrame(
     crs="EPSG:4326"
 )
 
-gdf_bairros = gpd.read_file("data/municipio_completo.shp").to_crs("EPSG:4326")
+gdf_bairros = gpd.read_file(os.path.join(BASE_DIR, "data", "municipio_completo.shp")).to_crs("EPSG:4326")
 
 gdf_imoveis_bairros = gpd.sjoin(
     gdf_imoveis,
@@ -39,64 +45,11 @@ gdf_imoveis_bairros = gpd.sjoin(
     how="left",
     predicate="intersects"
 )
-# =========================
-# Função auxiliar de filtro
-# =========================
-def filtrar_tipo(tipo):
-    if tipo == "total":
-        return gdf_imoveis_bairros.copy()
-    else:
-        return gdf_imoveis_bairros[gdf_imoveis_bairros["Tipo"] == tipo].copy()
-
-# =========================
-# Funções auxiliares de mapas
-# =========================
-ACCESS_TOKEN = "ZK6EgfhFT6px8F8MsRfOp2S5aUMPOvNr5CEEtLmjOYjHDC2MzgI0ZJ1cJjj0C98Y"
-
-def criar_mapa_base():
-    return folium.Map(
-        location=[-23.4205, -51.9331],
-        zoom_start=12,
-        tiles=f"https://{{s}}.tile.jawg.io/jawg-dark/{{z}}/{{x}}/{{y}}{{r}}.png?access-token={ACCESS_TOKEN}",
-        attr="Jawg Maps"
-    )
-
-def gerar_mapa_pontos(tipo):
-    gdf_filtrado = filtrar_tipo(tipo)
-    mapa = criar_mapa_base()
-    for _, row in gdf_filtrado.iterrows():
-        folium.CircleMarker(
-            location=[row["latitude"], row["longitude"]],
-            radius=4,
-            color="blue",
-            fill=True,
-            fill_opacity=0.6,
-            tooltip=f"{row['Tipo']} — R$ {row['Preço']:,.2f} — R$ {row['Preço por m²']:,.2f}/m²"
-        ).add_to(mapa)
-    return mapa.get_root().render()
-
-def gerar_mapa_cluster(tipo):
-    gdf_filtrado = filtrar_tipo(tipo)
-    mapa = criar_mapa_base()
-    cluster = MarkerCluster().add_to(mapa)
-    for _, row in gdf_filtrado.iterrows():
-        folium.Marker(
-            location=[row["latitude"], row["longitude"]],
-            popup=f"{row['Tipo']} — R$ {row['Preço']:,.2f} — R$ {row['Preço por m²']:,.2f}/m²"
-        ).add_to(cluster)
-    return mapa.get_root().render()
-
-def gerar_mapa_calor(tipo):
-    gdf_filtrado = filtrar_tipo(tipo)
-    mapa = criar_mapa_base()
-    heat_data = [[row["latitude"], row["longitude"], row["Preço"]] for _, row in gdf_filtrado.iterrows()]
-    HeatMap(heat_data, radius=10, blur=15, max_zoom=13).add_to(mapa)
-    return mapa.get_root().render()
 
 # =========================
 # Série temporal IPTU/ITBI
 # =========================
-df_raw = pd.read_excel("data/serie historica iptu itbi.xlsx", header=0)
+df_raw = pd.read_excel(os.path.join(BASE_DIR, "data", "serie historica iptu itbi.xlsx"), header=0)
 df_final = df_raw.set_index('ANO').T.reset_index()
 df_final = df_final.rename(columns={'index':'ano'})
 df_final['ano'] = df_final['ano'].astype(int)
