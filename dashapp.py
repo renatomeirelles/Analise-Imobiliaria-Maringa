@@ -237,35 +237,35 @@ app.layout = dbc.Container([
     ),
 ])
 
-    # Seletores
-    dbc.Row([
-        dbc.Col([
-            html.Label("Selecione o tipo de imóvel:", style={"fontWeight":"bold"}),
-            dcc.Dropdown(
-                id="tipo-imovel",
-                options=[
-                    {"label": "Todos", "value": "total"},
-                    {"label": "Apartamentos", "value": "apartamento"},
-                    {"label": "Casas", "value": "casa"},
-                    {"label": "Condomínios", "value": "condominio"}
-                ],
-                value="total"
-            )
-        ], md=6),
-        dbc.Col([
-            html.Label("Selecione o tipo de mapa:", style={"fontWeight":"bold"}),
-            dcc.Dropdown(
-                id="tipo-mapa",
-                options=[
-                    {"label": "Coroplético", "value": "coropletico"},
-                    {"label": "Pontos", "value": "pontos"},
-                    {"label": "Cluster", "value": "cluster"},
-                    {"label": "Calor", "value": "calor"}
-                ],
-                value="coropletico"
-            )
-        ], md=6),
-    ], className="mb-4"),
+# Seletores
+dbc.Row([
+    dbc.Col([
+        html.Label("Selecione o tipo de imóvel:", style={"fontWeight": "bold"}),
+        dcc.Dropdown(
+            id="tipo-imovel",
+            options=[
+                {"label": "Todos", "value": "total"},
+                {"label": "Apartamentos", "value": "apartamento"},
+                {"label": "Casas", "value": "casa"},
+                {"label": "Condomínios", "value": "condominio"}
+            ],
+            value="total"
+        )
+    ], md=6),
+    dbc.Col([
+        html.Label("Selecione o tipo de mapa:", style={"fontWeight": "bold"}),
+        dcc.Dropdown(
+            id="tipo-mapa",
+            options=[
+                {"label": "Coroplético", "value": "coropletico"},
+                {"label": "Pontos", "value": "pontos"},
+                {"label": "Cluster", "value": "cluster"},
+                {"label": "Calor", "value": "calor"}
+            ],
+            value="coropletico"
+        )
+    ], md=6),
+], className="mb-4"),
 
 # Cards de estatísticas
     dbc.Row([
