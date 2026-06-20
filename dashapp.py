@@ -267,7 +267,7 @@ app.layout = dbc.Container([
         ], md=6),
     ], className="mb-4"),
 
-    # Cards de estatísticas
+# Cards de estatísticas
     dbc.Row([
         dbc.Col(
             dbc.Card([
