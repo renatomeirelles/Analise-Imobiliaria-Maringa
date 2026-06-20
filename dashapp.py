@@ -268,37 +268,37 @@ dbc.Row([
 ], className="mb-4"),
 
 # Cards de estatísticas
-    dbc.Row([
-        dbc.Col(
-            dbc.Card([
-                dbc.CardHeader("Resumo"),
-                dbc.CardBody([
-                    html.P(id="info-filtro")   # <- ID para o resumo dinâmico
-                ])
-            ], color="secondary", outline=True),
-            md=4
-        ),
+dbc.Row([
+    dbc.Col(
+        dbc.Card([
+            dbc.CardHeader("Resumo"),
+            dbc.CardBody([
+                html.P(id="info-filtro")   # <- ID para o resumo dinâmico
+            ])
+        ], color="secondary", outline=True),
+        md=4
+    ),
 
-        dbc.Col(
-            dbc.Card([
-                dbc.CardHeader("Previsão IPTU"),
-                dbc.CardBody([
-                    html.P(id="previsao-iptu")   # <- ID para previsão IPTU
-                ])
-            ], color="info", outline=True),
-            md=4
-        ),
+    dbc.Col(
+        dbc.Card([
+            dbc.CardHeader("Previsão IPTU"),
+            dbc.CardBody([
+                html.P(id="previsao-iptu")   # <- ID para previsão IPTU
+            ])
+        ], color="info", outline=True),
+        md=4
+    ),
 
-        dbc.Col(
-            dbc.Card([
-                dbc.CardHeader("Previsão ITBI"),
-                dbc.CardBody([
-                    html.P(id="previsao-itbi")   # <- ID para previsão ITBI
-                ])
-            ], color="success", outline=True),
-            md=4
-        )
-    ], className="mb-4"),
+    dbc.Col(
+        dbc.Card([
+            dbc.CardHeader("Previsão ITBI"),
+            dbc.CardBody([
+                html.P(id="previsao-itbi")   # <- ID para previsão ITBI
+            ])
+        ], color="success", outline=True),
+        md=4
+    )
+], className="mb-4"),
 
     # Mapa + gráfico de distribuição
     dbc.Row([
