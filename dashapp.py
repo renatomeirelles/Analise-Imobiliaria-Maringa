@@ -192,6 +192,9 @@ app.layout = dbc.Container([
         )
     ], className="mb-4")
 ], fluid=True)
+# =========================
+# Callback simplificado para teste (Etapa 1)
+# =========================
 @app.callback(
     [
         Output("mapa", "srcDoc"),
@@ -206,7 +209,7 @@ app.layout = dbc.Container([
 def atualizar_dashboard(tipo_imovel, tipo_mapa):
     print(">>> Callback rodou:", tipo_imovel, tipo_mapa)
 
-    # --- Mapa simplificado ---
+    # --- Mapa temporário ---
     mapa_html = "<h3>Mapa temporário</h3>"
 
     # --- Estatísticas resumo ---
@@ -221,18 +224,18 @@ def atualizar_dashboard(tipo_imovel, tipo_mapa):
         html.P(f"Média m²: R$ {media_m2:,.2f}")
     ]
 
-    # --- Gráfico distribuição simplificado ---
-    fig_dist = px.histogram(gdf_filtrado, x="Preço", nbins=30, title="Distribuição de preços")
-
-    # --- Previsões temporárias ---
+    # --- Placeholders temporários ---
+    fig_dist = px.line(title="Distribuição temporária")
     previsao_iptu = [html.P("Previsão IPTU temporária")]
     previsao_itbi = [html.P("Previsão ITBI temporária")]
-
-    # --- Gráfico temporal vazio ---
     fig_temp = px.line(title="Gráfico temporal temporário")
 
     return mapa_html, info_resumo, fig_dist, previsao_iptu, previsao_itbi, fig_temp
 
 
+# =========================
+# Rodar o servidor
+# =========================
 if __name__ == "__main__":
     app.run_server(debug=True)
+
