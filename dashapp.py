@@ -301,10 +301,28 @@ dbc.Row([
 ], className="mb-4"),
 
 # Mapa + gráfico de distribuição
-    dbc.Row([
-        dbc.Col(html.Iframe(id="mapa", style={"width":"100%", "height":"700px"}), md=8),
-        dbc.Col(dcc.Graph(id="grafico-distribuicao"), md=4)
-    ], className="mb-4"),
+dbc.Row([
+    dbc.Col(
+        html.Iframe(
+            id="mapa",
+            style={"width": "100%", "height": "700px"}
+        ),
+        md=8
+    ),
+    dbc.Col(
+        dcc.Graph(id="grafico-distribuicao"),
+        md=4
+    )
+], className="mb-4"),
+
+# Gráfico temporal IPTU/ITBI
+dbc.Row([
+    dbc.Col(
+        dcc.Graph(id="grafico-temporal"),
+        md=12
+    )
+], className="mb-4")
+
 
     # Gráfico temporal IPTU/ITBI
     dbc.Row([
