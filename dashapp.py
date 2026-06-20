@@ -207,9 +207,12 @@ app.layout = dbc.Container([
     [Input("tipo-imovel", "value"), Input("tipo-mapa", "value")]
 )
 def atualizar_dashboard(tipo_imovel, tipo_mapa):
+    print(">>> Atualizando dashboard:", tipo_imovel, tipo_mapa)
+
     # --- Mapa ---
     if tipo_mapa == "coropletico":
-        mapa_html = gerar_mapa_coropletico(tipo_imovel)
+        # Como não temos função coroplética implementada, vamos usar pontos
+        mapa_html = gerar_mapa_pontos(tipo_imovel)
     elif tipo_mapa == "pontos":
         mapa_html = gerar_mapa_pontos(tipo_imovel)
     elif tipo_mapa == "cluster":
