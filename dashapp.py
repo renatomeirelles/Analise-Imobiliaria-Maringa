@@ -255,8 +255,12 @@ def atualizar_dashboard(tipo_imovel, tipo_mapa):
     else:
         mapa_path = gerar_mapa_calor(tipo_imovel)
 
-    with open(mapa_path, "r", encoding="utf-8") as f:
-        mapa_html = f.read()
+    mapa_html = ""
+    try:
+        with open(mapa_path, "r", encoding="utf-8") as f:
+            mapa_html = f.read()
+    except Exception:
+        mapa_html = "<p>Mapa não disponível</p>"
 
     # --- Estatísticas resumo ---
     gdf_filtrado = filtrar_tipo(tipo_imovel)
@@ -313,3 +317,4 @@ def atualizar_dashboard(tipo_imovel, tipo_mapa):
 # =========================
 if __name__ == "__main__":
     app.run(debug=True)
+
