@@ -193,82 +193,15 @@ app.layout = dbc.Container([
     ], className="mb-4")
 ], fluid=True)
 # =========================
-# Callback para atualizar mapa, estatísticas, gráfico e previsões ARIMA
+# Callback simplificado para teste
 # =========================
 @app.callback(
-    [
-        Output("mapa", "srcDoc"),
-        Output("info-filtro", "children"),
-        Output("grafico-distribuicao", "figure"),
-        Output("previsao-iptu", "children"),
-        Output("previsao-itbi", "children"),
-        Output("grafico-temporal", "figure")
-    ],
+    Output("mapa", "srcDoc"),
     [Input("tipo-imovel", "value"), Input("tipo-mapa", "value")]
 )
-def atualizar_dashboard(tipo_imovel, tipo_mapa):
-    print(">>> Atualizando dashboard:", tipo_imovel, tipo_mapa)
-
-    # --- Mapa ---
-    if tipo_mapa == "coropletico":
-        # Como não temos função coroplética implementada, vamos usar pontos
-        mapa_html = gerar_mapa_pontos(tipo_imovel)
-    elif tipo_mapa == "pontos":
-        mapa_html = gerar_mapa_pontos(tipo_imovel)
-    elif tipo_mapa == "cluster":
-        mapa_html = gerar_mapa_cluster(tipo_imovel)
-    else:
-        mapa_html = gerar_mapa_calor(tipo_imovel)
-
-    # --- Estatísticas resumo ---
-    gdf_filtrado = filtrar_tipo(tipo_imovel)
-    qtd = len(gdf_filtrado)
-    media_total = gdf_filtrado["Preço"].mean()
-    media_m2 = gdf_filtrado["Preço por m²"].mean()
-
-    info_resumo = [
-        html.P(f"Imóveis encontrados: {qtd}"),
-        html.P(f"Média total: R$ {media_total:,.2f}"),
-        html.P(f"Média m²: R$ {media_m2:,.2f}")
-    ]
-
-    # --- Gráfico distribuição ---
-    fig_dist = px.histogram(
-        gdf_filtrado, x="Preço", nbins=30,
-        title="Distribuição de preços"
-    )
-    fig_dist.update_layout(template="plotly_dark")
-
-    # --- Previsões ARIMA ---
-    prev_iptu = prever_arima_iptu(df_final, steps=2)
-    prev_itbi = prever_arima_itbi(df_final, steps=2)
-
-    previsao_iptu = [
-        html.P(f"{row['ano']}: R$ {row['IPTU_prev']:,.2f}") for _, row in prev_iptu.iterrows()
-    ]
-    previsao_itbi = [
-        html.P(f"{row['ano']}: R$ {row['ITBI_prev']:,.2f}") for _, row in prev_itbi.iterrows()
-    ]
-
-    # --- Gráfico temporal (histórico + previsão) ---
-    df_iptu = pd.concat([
-        df_final[['ano','IPTU']].rename(columns={'IPTU':'valor'}).assign(tipo='Histórico IPTU'),
-        prev_iptu.rename(columns={'IPTU_prev':'valor'}).assign(tipo='Previsto IPTU')
-    ])
-
-    df_itbi = pd.concat([
-        df_final[['ano','ITBI']].rename(columns={'ITBI':'valor'}).assign(tipo='Histórico ITBI'),
-        prev_itbi.rename(columns={'ITBI_prev':'valor'}).assign(tipo='Previsto ITBI')
-    ])
-
-    df_plot = pd.concat([df_iptu, df_itbi])
-
-    fig_temp = px.line(df_plot, x="ano", y="valor", color="tipo",
-                       title="Histórico e Previsões IPTU/ITBI")
-    fig_temp.update_layout(template="plotly_dark")
-
-    return mapa_html, info_resumo, fig_dist, previsao_iptu, previsao_itbi, fig_temp
-
+def atualizar_dashboard_teste(tipo_imovel, tipo_mapa):
+    print(">>> Callback rodou:", tipo_imovel, tipo_mapa)
+    return f"<h1>Teste funcionando - Imóvel: {tipo_imovel}, Mapa: {tipo_mapa}</h1>"
 
 # =========================
 # Rodar o servidor
