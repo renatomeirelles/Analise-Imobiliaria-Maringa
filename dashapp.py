@@ -22,7 +22,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # =========================
 # Carregar dados imobiliários
 # =========================
-df = pd.read_excel(os.path.join(BASE_DIR, "data", "imoveis_georreferenciados_novembro.xlsx"))
+print(">>> Carregando dados de imóveis...")
+df_path = os.path.join(BASE_DIR, "data", "imoveis_georreferenciados_novembro.xlsx")
+print("Arquivo esperado:", df_path)
+df = pd.read_excel(df_path)
 df.columns = df.columns.str.strip()
 df = df.dropna(subset=['latitude', 'longitude'])
 
@@ -37,7 +40,10 @@ gdf_imoveis = gpd.GeoDataFrame(
     crs="EPSG:4326"
 )
 
-gdf_bairros = gpd.read_file(os.path.join(BASE_DIR, "data", "municipio_completo.shp")).to_crs("EPSG:4326")
+print(">>> Carregando shapefile de bairros...")
+shp_path = os.path.join(BASE_DIR, "data", "municipio_completo.shp")
+print("Arquivo esperado:", shp_path)
+gdf_bairros = gpd.read_file(shp_path).to_crs("EPSG:4326")
 
 gdf_imoveis_bairros = gpd.sjoin(
     gdf_imoveis,
@@ -49,7 +55,11 @@ gdf_imoveis_bairros = gpd.sjoin(
 # =========================
 # Série temporal IPTU/ITBI
 # =========================
-df_raw = pd.read_excel(os.path.join(BASE_DIR, "data", "serie historica iptu itbi.xlsx"), header=0)
+print(">>> Carregando série histórica IPTU/ITBI...")
+serie_path = os.path.join(BASE_DIR, "data", "serie historica iptu itbi.xlsx")
+print("Arquivo esperado:", serie_path)
+df_raw = pd.read_excel(serie_path, header=0)
+
 df_final = df_raw.set_index('ANO').T.reset_index()
 df_final = df_final.rename(columns={'index':'ano'})
 df_final['ano'] = df_final['ano'].astype(int)
@@ -59,6 +69,9 @@ df_final['PIB Maringá'] = pd.to_numeric(df_final['PIB Maringá'], errors='coerc
 df_final['INCC'] = df_final['INCC'].astype(str).str.replace('%','').str.replace(',','.').astype(float)
 df_final['IPCA'] = df_final['IPCA'].astype(str).str.replace('%','').str.replace(',','.').astype(float)
 df_final = df_final.dropna(subset=['IPTU','ITBI'])
+
+print(">>> Dados carregados com sucesso. Registros:", len(df), "anos série:", df_final['ano'].min(), "-", df_final['ano'].max())
+
 
 # =========================
 # Funções ARIMA
