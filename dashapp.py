@@ -322,13 +322,8 @@ dbc.Row([
         md=12
     )
 ], className="mb-4")
-
-
-    # Gráfico temporal IPTU/ITBI
-    dbc.Row([
-        dbc.Col(dcc.Graph(id="grafico-temporal"), md=12)
-    ], className="mb-4")
 ], fluid=True)
+
 
 # =========================
 # Callback para atualizar mapa, estatísticas, gráfico e previsões ARIMA
