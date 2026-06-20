@@ -324,7 +324,6 @@ dbc.Row([
 ], className="mb-4")
 ], fluid=True)
 
-
 # =========================
 # Callback para atualizar mapa, estatísticas, gráfico e previsões ARIMA
 # =========================
