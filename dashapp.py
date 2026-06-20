@@ -192,19 +192,47 @@ app.layout = dbc.Container([
         )
     ], className="mb-4")
 ], fluid=True)
-# =========================
-# Callback simplificado para teste
-# =========================
 @app.callback(
-    Output("mapa", "srcDoc"),
+    [
+        Output("mapa", "srcDoc"),
+        Output("info-filtro", "children"),
+        Output("grafico-distribuicao", "figure"),
+        Output("previsao-iptu", "children"),
+        Output("previsao-itbi", "children"),
+        Output("grafico-temporal", "figure")
+    ],
     [Input("tipo-imovel", "value"), Input("tipo-mapa", "value")]
 )
-def atualizar_dashboard_teste(tipo_imovel, tipo_mapa):
+def atualizar_dashboard(tipo_imovel, tipo_mapa):
     print(">>> Callback rodou:", tipo_imovel, tipo_mapa)
-    return f"<h1>Teste funcionando - Imóvel: {tipo_imovel}, Mapa: {tipo_mapa}</h1>"
 
-# =========================
-# Rodar o servidor
-# =========================
+    # --- Mapa simplificado ---
+    mapa_html = "<h3>Mapa temporário</h3>"
+
+    # --- Estatísticas resumo ---
+    gdf_filtrado = filtrar_tipo(tipo_imovel)
+    qtd = len(gdf_filtrado)
+    media_total = gdf_filtrado["Preço"].mean()
+    media_m2 = gdf_filtrado["Preço por m²"].mean()
+
+    info_resumo = [
+        html.P(f"Imóveis encontrados: {qtd}"),
+        html.P(f"Média total: R$ {media_total:,.2f}"),
+        html.P(f"Média m²: R$ {media_m2:,.2f}")
+    ]
+
+    # --- Gráfico distribuição simplificado ---
+    fig_dist = px.histogram(gdf_filtrado, x="Preço", nbins=30, title="Distribuição de preços")
+
+    # --- Previsões temporárias ---
+    previsao_iptu = [html.P("Previsão IPTU temporária")]
+    previsao_itbi = [html.P("Previsão ITBI temporária")]
+
+    # --- Gráfico temporal vazio ---
+    fig_temp = px.line(title="Gráfico temporal temporário")
+
+    return mapa_html, info_resumo, fig_dist, previsao_iptu, previsao_itbi, fig_temp
+
+
 if __name__ == "__main__":
     app.run_server(debug=True)
