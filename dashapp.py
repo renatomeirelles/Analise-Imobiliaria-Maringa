@@ -51,6 +51,16 @@ def filtrar_tipo(tipo):
 # =========================
 # Funções auxiliares de mapas
 # =========================
+ACCESS_TOKEN = "ZK6EgfhFT6px8F8MsRfOp2S5aUMPOvNr5CEEtLmjOYjHDC2MzgI0ZJ1cJjj0C98Y"
+
+def criar_mapa_base():
+    return folium.Map(
+        location=[-23.4205, -51.9331],
+        zoom_start=12,
+        tiles=f"https://{{s}}.tile.jawg.io/jawg-dark/{{z}}/{{x}}/{{y}}{{r}}.png?access-token={ACCESS_TOKEN}",
+        attr="Jawg Maps"
+    )
+
 def gerar_mapa_pontos(tipo):
     gdf_filtrado = filtrar_tipo(tipo)
     mapa = criar_mapa_base()
@@ -61,10 +71,9 @@ def gerar_mapa_pontos(tipo):
             color="blue",
             fill=True,
             fill_opacity=0.6,
-            tooltip=f"{row['Tipo']} — R$ {row['Preço']:,.2f} (total) — R$ {row['Preço por m²']:,.2f}/m²"
+            tooltip=f"{row['Tipo']} — R$ {row['Preço']:,.2f} — R$ {row['Preço por m²']:,.2f}/m²"
         ).add_to(mapa)
-    mapa.save("mapa.html")
-    return "mapa.html"
+    return mapa.get_root().render()
 
 def gerar_mapa_cluster(tipo):
     gdf_filtrado = filtrar_tipo(tipo)
@@ -73,18 +82,16 @@ def gerar_mapa_cluster(tipo):
     for _, row in gdf_filtrado.iterrows():
         folium.Marker(
             location=[row["latitude"], row["longitude"]],
-            popup=f"{row['Tipo']} — R$ {row['Preço']:,.2f} (total) — R$ {row['Preço por m²']:,.2f}/m²"
+            popup=f"{row['Tipo']} — R$ {row['Preço']:,.2f} — R$ {row['Preço por m²']:,.2f}/m²"
         ).add_to(cluster)
-    mapa.save("mapa.html")
-    return "mapa.html"
+    return mapa.get_root().render()
 
 def gerar_mapa_calor(tipo):
     gdf_filtrado = filtrar_tipo(tipo)
     mapa = criar_mapa_base()
     heat_data = [[row["latitude"], row["longitude"], row["Preço"]] for _, row in gdf_filtrado.iterrows()]
     HeatMap(heat_data, radius=10, blur=15, max_zoom=13).add_to(mapa)
-    mapa.save("mapa.html")
-    return "mapa.html"
+    return mapa.get_root().render()
 
 # =========================
 # Série temporal IPTU/ITBI
@@ -99,16 +106,6 @@ df_final['PIB Maringá'] = pd.to_numeric(df_final['PIB Maringá'], errors='coerc
 df_final['INCC'] = df_final['INCC'].astype(str).str.replace('%','').str.replace(',','.').astype(float)
 df_final['IPCA'] = df_final['IPCA'].astype(str).str.replace('%','').str.replace(',','.').astype(float)
 df_final = df_final.dropna(subset=['IPTU','ITBI'])
-
-ACCESS_TOKEN = "ZK6EgfhFT6px8F8MsRfOp2S5aUMPOvNr5CEEtLmjOYjHDC2MzgI0ZJ1cJjj0C98Y"
-
-def criar_mapa_base():
-    return folium.Map(
-        location=[-23.4205, -51.9331],
-        zoom_start=12,
-        tiles=f"https://{{s}}.tile.jawg.io/jawg-dark/{{z}}/{{x}}/{{y}}{{r}}.png?access-token={ACCESS_TOKEN}",
-        attr="Jawg Maps"
-    )
 
 # =========================
 # Funções ARIMA
@@ -180,27 +177,25 @@ app.layout = dbc.Container([
             dbc.Card([
                 dbc.CardHeader("Resumo"),
                 dbc.CardBody([
-                    html.P(id="info-filtro")   # <- ID para o resumo dinâmico
+                    html.P(id="info-filtro")
                 ])
             ], color="secondary", outline=True),
             md=4
         ),
-
         dbc.Col(
             dbc.Card([
                 dbc.CardHeader("Previsão IPTU"),
                 dbc.CardBody([
-                    html.P(id="previsao-iptu")   # <- ID para previsão IPTU
+                    html.P(id="previsao-iptu")
                 ])
             ], color="info", outline=True),
             md=4
         ),
-
         dbc.Col(
             dbc.Card([
                 dbc.CardHeader("Previsão ITBI"),
                 dbc.CardBody([
-                    html.P(id="previsao-itbi")   # <- ID para previsão ITBI
+                    html.P(id="previsao-itbi")
                 ])
             ], color="success", outline=True),
             md=4
@@ -212,6 +207,7 @@ app.layout = dbc.Container([
         dbc.Col(
             html.Iframe(
                 id="mapa",
+                srcDoc="",   # inicializa vazio para receber conteúdo do callback
                 style={"width": "100%", "height": "700px"}
             ),
             md=8
@@ -247,20 +243,13 @@ app.layout = dbc.Container([
 def atualizar_dashboard(tipo_imovel, tipo_mapa):
     # --- Mapa ---
     if tipo_mapa == "coropletico":
-        mapa_path = gerar_mapa_coropletico(tipo_imovel)
+        mapa_html = gerar_mapa_coropletico(tipo_imovel)
     elif tipo_mapa == "pontos":
-        mapa_path = gerar_mapa_pontos(tipo_imovel)
+        mapa_html = gerar_mapa_pontos(tipo_imovel)
     elif tipo_mapa == "cluster":
-        mapa_path = gerar_mapa_cluster(tipo_imovel)
+        mapa_html = gerar_mapa_cluster(tipo_imovel)
     else:
-        mapa_path = gerar_mapa_calor(tipo_imovel)
-
-    mapa_html = ""
-    try:
-        with open(mapa_path, "r", encoding="utf-8") as f:
-            mapa_html = f.read()
-    except Exception:
-        mapa_html = "<p>Mapa não disponível</p>"
+        mapa_html = gerar_mapa_calor(tipo_imovel)
 
     # --- Estatísticas resumo ---
     gdf_filtrado = filtrar_tipo(tipo_imovel)
@@ -317,4 +306,3 @@ def atualizar_dashboard(tipo_imovel, tipo_mapa):
 # =========================
 if __name__ == "__main__":
     app.run(debug=True)
-
