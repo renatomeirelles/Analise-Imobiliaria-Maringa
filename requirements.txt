@@ -1,9 +1,9 @@
-dash
-dash-bootstrap-components
-plotly
+streamlit
+pydeck
 pandas
+numpy
 geopandas
-folium
-statsmodels
-gunicorn
+shapely
+matplotlib
+seaborn
 openpyxl

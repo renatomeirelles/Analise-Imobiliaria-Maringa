@@ -1,14 +1,14 @@
 # =========================
 # Imports e configuração inicial
 # =========================
-import streamlit as st
+import json
+
+import matplotlib.pyplot as plt
 import pandas as pd
 import geopandas as gpd
-import folium
-from streamlit_folium import st_folium
-from folium.plugins import MarkerCluster, HeatMap
-import matplotlib.pyplot as plt
+import pydeck as pdk
 import seaborn as sns
+import streamlit as st
 from matplotlib.ticker import FuncFormatter
 from pathlib import Path
 
@@ -28,14 +28,11 @@ sns.set(style="darkgrid")
 # =========================
 st.markdown("""
 <style>
-/* Layout geral */
 .block-container {
-    padding-top: 2.5rem;  /* espaço superior para não cobrir título */
+    padding-top: 2.5rem;
     padding-bottom: 0.5rem;
     max-width: 1400px;
 }
-
-/* Estilo de texto */
 label, .stSelectbox label {
     color: white !important;
     font-weight: 600;
@@ -44,23 +41,15 @@ h1, h2, h3 {
     color: white !important;
     margin-bottom: 0.6rem;
 }
-
-/* Painel de filtros (coluna direita) */
 .sidebar-metric {
     color: white !important;
     font-size: 15px;
     font-weight: 500;
 }
-
-/* Esconde apenas a barra superior */
 [data-testid="stToolbar"] {
     display: none !important;
 }
-
-/* Espaçamento compacto */
 .stColumns { gap: 0.25rem !important; }
-
-/* Título principal com fundo escuro */
 .titulo-com-fundo {
     background-color: #111;
     padding: 1rem 1rem;
@@ -72,8 +61,6 @@ h1, h2, h3 {
     margin-top: 1rem;
     margin-bottom: 0.8rem;
 }
-
-/* Títulos Mapa e Gráfico com fundo escuro */
 .titulo-duplo {
     display: flex;
     justify-content: space-between;
@@ -92,17 +79,11 @@ h1, h2, h3 {
 </style>
 """, unsafe_allow_html=True)
 
-# =========================
-# Título principal com fundo escuro
-# =========================
 st.markdown(
     '<div class="titulo-com-fundo">Análise Estatística e Espacial da Oferta de Imóveis Residenciais</div>',
     unsafe_allow_html=True
 )
 
-# =========================
-# Títulos de Mapa e Gráfico com fundo escuro e alinhados
-# =========================
 st.markdown("""
 <div class="titulo-duplo">
     <h3>Mapa</h3>
@@ -111,14 +92,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =========================
-# Filtros (corrigido, agora em coluna à direita)
+# Filtros
 # =========================
 col_map, col_chart, col_filters = st.columns([6, 6, 4], gap="small")
 
 with col_filters:
     st.markdown("## 🎛️ Filtros")
 
-    # Filtro de estatística
     tipo_estatistica = st.selectbox(
         "Selecione a estatística:",
         [
@@ -135,15 +115,13 @@ with col_filters:
         key="estatistica_selectbox"
     )
 
-    # Filtro de mapa
     tipo_mapa = st.selectbox(
         "Selecione o tipo de mapa:",
-        ["Coroplético", "Pontos", "Cluster", "Calor"],
+        ["Coroplético", "Pontos", "Densidade 3D (hexbin)", "Calor"],
         index=0,
         key="mapa_selectbox"
     )
 
-    # Filtro de gráfico
     grafico_tipo = st.selectbox(
         "Selecione o gráfico:",
         ["Histograma", "Barras por bairro", "Boxplot por tipo"],
@@ -151,10 +129,9 @@ with col_filters:
         key="grafico_selectbox"
     )
 
-    # Métricas (texto branco)
     st.markdown("## 📊 Estatísticas")
-    st.markdown(f'<div class="sidebar-metric">🔢 Imóveis encontrados: --</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="sidebar-metric">📈 Média: --</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-metric">🔢 Imóveis encontrados: --</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-metric">📈 Média: --</div>', unsafe_allow_html=True)
 
 # =========================
 # Funções de carga de dados
@@ -211,17 +188,17 @@ if not data_ok:
     st.stop()
 
 # =========================
-# Configuração de tiles Jawg Dark
+# Paleta e faixas para o mapa coroplético
 # =========================
-access_token = "ZK6EgfhFT6px8F8MsRfOp2S5aUMPOvNr5CEEtLmjOYjHDC2MzgI0ZJ1cJjj0C98Y"
-tiles_url = f"https://tile.jawg.io/jawg-dark/{{z}}/{{x}}/{{y}}{{r}}.png?access-token={access_token}"
-attr = '<a href="https://jawg.io" target="_blank">&copy; <b>Jawg</b>Maps</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+cores_hex = ['#FF0000', '#FFA500', '#FFFF00', '#00FF00', '#00CED1',
+             '#0000FF', '#8A2BE2', '#FF69B4', '#A52A2A']
 
-# =========================
-# Paleta e faixas para mapa
-# =========================
-cores = ['#FF0000', '#FFA500', '#FFFF00', '#00FF00', '#00CED1',
-         '#0000FF', '#8A2BE2', '#FF69B4', '#A52A2A']
+def hex_para_rgba(hex_color, alpha=180):
+    hex_color = hex_color.lstrip("#")
+    r, g, b = (int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
+    return [r, g, b, alpha]
+
+cores_rgba = [hex_para_rgba(c) for c in cores_hex]
 
 faixas_base = {
     'preco': [120000, 300000, 500000, 800000, 1000000,
@@ -283,8 +260,12 @@ elif "condomínios" in tipo_estatistica.lower():
         df_filtrado = df_filtrado[df_filtrado["valor_m2"].notnull()]
     estatistica_norm = "preco_medio_por_m2_condominios" if "m²" in tipo_estatistica else "preco_medio_condominios"
 
+# Coluna auxiliar com nome fixo, usada nos tooltips do pydeck
+df_filtrado = df_filtrado.copy()
+df_filtrado["valor_tooltip"] = df_filtrado[coluna_valor]
+
 # =========================
-# Métricas (atualiza painel de filtros)
+# Métricas
 # =========================
 num_imoveis = len(df_filtrado)
 media_imoveis = df_filtrado[coluna_valor].mean() if num_imoveis else 0
@@ -295,9 +276,8 @@ with col_filters:
     st.markdown(f'<div class="sidebar-metric">📈 Média ({tipo_estatistica}): R$ {media_imoveis:,.2f}</div>', unsafe_allow_html=True)
 
 # =========================
-# Layout em duas colunas: mapa (esquerda) + gráfico (direita)
+# Auxiliares de gráfico (matplotlib)
 # =========================
-
 def style_axes(ax):
     ax.title.set_color("white")
     ax.xaxis.label.set_color("white")
@@ -311,18 +291,22 @@ currency_formatter = FuncFormatter(lambda x, pos: f"R$ {x:,.0f}".replace(",", ".
 
 col_map, col_chart = st.columns([7, 5], gap="small")
 
-# --- Mapa ---
+# =========================
+# Mapa (pydeck / deck.gl)
+# =========================
 with col_map:
     st.markdown("### 🗺️ Mapa")
-    m = folium.Map(
-        location=[-23.4205, -51.9331],
-        zoom_start=12,
-        tiles=tiles_url,
-        attr=attr,
-        control_scale=True
+
+    view_state = pdk.ViewState(
+        latitude=-23.4205,
+        longitude=-51.9331,
+        zoom=12,
+        pitch=45 if tipo_mapa == "Densidade 3D (hexbin)" else 0,
     )
 
     bins = faixas_dict.get(estatistica_norm, faixas_base['preco'])
+    layers = []
+    tooltip = None
 
     if tipo_mapa == "Coroplético":
         gdf_imoveis = gpd.GeoDataFrame(
@@ -336,71 +320,93 @@ with col_map:
             how="left",
             predicate="within"
         )
-
-        preco_bairro = (
-            gdf_join.groupby("NOME")[coluna_valor]
-            .mean()
-            .reset_index()
-        )
+        preco_bairro = gdf_join.groupby("NOME")[coluna_valor].mean().reset_index()
         preco_bairro.columns = ["Bairro", "media"]
 
         gdf_plot = gdf_bairros.merge(preco_bairro, left_on="NOME", right_on="Bairro", how="left")
 
         def cor_por_faixa(valor):
             if pd.isna(valor) or valor <= 0:
-                return "#2b2b2b"
+                return [43, 43, 43, 120]
             for i in range(len(bins) - 1):
                 if bins[i] <= valor <= bins[i + 1]:
-                    return cores[i]
-            return cores[-1]
+                    return cores_rgba[i]
+            return cores_rgba[-1]
 
-        gdf_plot["cor"] = gdf_plot["media"].apply(cor_por_faixa)
+        gdf_plot["fill_color"] = gdf_plot["media"].apply(cor_por_faixa)
+        gdf_plot["media_fmt"] = gdf_plot["media"].apply(
+            lambda v: f"R$ {v:,.2f}" if pd.notna(v) else "sem dados"
+        )
+        geojson = json.loads(gdf_plot[["geometry", "NOME", "media_fmt", "fill_color"]].to_json())
 
-        folium.GeoJson(
-            gdf_plot,
-            style_function=lambda feature: {
-                "fillColor": feature["properties"]["cor"],
-                "color": "#3a3a3a",
-                "weight": 0.6,
-                "fillOpacity": 0.75,
-            },
-            tooltip=folium.GeoJsonTooltip(
-                fields=["NOME", "media"],
-                aliases=["Bairro", "Média"],
-                localize=True,
-            ),
-        ).add_to(m)
+        layers.append(
+            pdk.Layer(
+                "GeoJsonLayer",
+                geojson,
+                stroked=True,
+                filled=True,
+                get_fill_color="properties.fill_color",
+                get_line_color=[58, 58, 58],
+                line_width_min_pixels=1,
+                pickable=True,
+            )
+        )
+        tooltip = {"html": "<b>{NOME}</b><br/>Média: {media_fmt}"}
 
     elif tipo_mapa == "Pontos":
-        for _, row in df_filtrado.iterrows():
-            valor_popup = row[coluna_valor]
-            rotulo = "Preço por m²" if coluna_valor == "valor_m2" else "Preço"
-            folium.CircleMarker(
-                location=[row["latitude"], row["longitude"]],
-                radius=3,
-                color="#00CED1",
-                fill=True,
-                fill_color="#00CED1",
-                fill_opacity=0.6,
-                popup=f"{row.get('Tipo', 'Imóvel')} — {rotulo}: R$ {valor_popup:,.2f}",
-            ).add_to(m)
+        layers.append(
+            pdk.Layer(
+                "ScatterplotLayer",
+                df_filtrado,
+                get_position=["longitude", "latitude"],
+                get_radius=35,
+                get_fill_color=[0, 206, 209, 160],
+                pickable=True,
+            )
+        )
+        tooltip = {"html": "{Tipo} — R$ {valor_tooltip}"}
 
-    elif tipo_mapa == "Cluster":
-        cluster = MarkerCluster(control=False).add_to(m)
-        for _, row in df_filtrado.iterrows():
-            valor_popup = row[coluna_valor]
-            rotulo = "Preço por m²" if coluna_valor == "valor_m2" else "Preço"
-            folium.Marker(
-                location=[row["latitude"], row["longitude"]],
-                popup=f"{row.get('Tipo', 'Imóvel')} — {rotulo}: R$ {valor_popup:,.2f}",
-            ).add_to(cluster)
+    elif tipo_mapa == "Densidade 3D (hexbin)":
+        # Equivalente ao "Cluster" antigo, mas com visual deck.gl:
+        # agrega os pontos em hexágonos e usa altura/cor para densidade.
+        layers.append(
+            pdk.Layer(
+                "HexagonLayer",
+                df_filtrado,
+                get_position=["longitude", "latitude"],
+                radius=150,
+                elevation_scale=15,
+                elevation_range=[0, 1500],
+                extruded=True,
+                coverage=1,
+                pickable=True,
+            )
+        )
+        tooltip = {"html": "Imóveis nesta região: {elevationValue}"}
 
     elif tipo_mapa == "Calor":
-        HeatMap(df_filtrado[["latitude", "longitude"]].values, radius=15).add_to(m)
+        layers.append(
+            pdk.Layer(
+                "HeatmapLayer",
+                df_filtrado,
+                get_position=["longitude", "latitude"],
+                get_weight="valor_tooltip",
+                radius_pixels=40,
+            )
+        )
 
-    st_folium(m, height=480)
+    deck = pdk.Deck(
+        layers=layers,
+        initial_view_state=view_state,
+        map_provider="carto",
+        map_style="dark",
+        tooltip=tooltip,
+    )
+    st.pydeck_chart(deck, height=480)
 
-# --- Gráfico ---
+# =========================
+# Gráfico (matplotlib)
+# =========================
 with col_chart:
     st.markdown("### 📉 Gráfico")
     fig = None
@@ -461,4 +467,3 @@ with col_chart:
 
     if fig is not None:
         st.pyplot(fig, clear_figure=True)
-
