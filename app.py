@@ -29,14 +29,14 @@ plt.style.use("dark_background")
 sns.set(style="darkgrid")
 
 # =========================
-# CSS otimizado e seguro
+# CSS
 # =========================
 st.markdown("""
 <style>
 .block-container {
     padding-top: 2.5rem;
     padding-bottom: 0.5rem;
-    max-width: 1400px;
+    max-width: 1500px;
 }
 label, .stSelectbox label {
     color: white !important;
@@ -75,12 +75,10 @@ st.markdown(
 )
 
 # =========================
-# Layout: UMA ÚNICA declaração de colunas para mapa, gráfico e filtros.
-# (O "card vazio" que aparecia no topo era causado por uma segunda
-# declaração de colunas mais abaixo, que deixava as duas primeiras colunas
-# desta aqui vazias, mas ainda ocupando o espaço da tela.)
+# Layout: filtros (esquerda) | mapa (centro, maior) | gráfico (direita, menor)
+# Uma única declaração de colunas, reaproveitada ao longo do script.
 # =========================
-col_map, col_chart, col_filters = st.columns([7, 5, 4], gap="small")
+col_filters, col_map, col_chart = st.columns([3, 6, 3], gap="small")
 
 with col_filters:
     st.markdown("## 🎛️ Filtros")
@@ -190,6 +188,26 @@ def hex_para_rgba(hex_color, alpha=180):
 
 cores_rgba = [hex_para_rgba(c) for c in cores_hex]
 
+cor_range_teal = [
+    [8, 48, 51],
+    [10, 80, 85],
+    [0, 130, 132],
+    [0, 170, 172],
+    [0, 206, 209],
+    [140, 240, 240],
+]
+
+def valor_para_cor_teal(valor, vmin, vmax, alpha=200):
+    if pd.isna(valor):
+        return [43, 43, 43, 120]
+    if vmax == vmin:
+        t = 0.0
+    else:
+        t = (valor - vmin) / (vmax - vmin)
+    t = max(0.0, min(1.0, t))
+    idx = min(int(t * (len(cor_range_teal) - 1)), len(cor_range_teal) - 1)
+    return cor_range_teal[idx] + [alpha]
+
 faixas_base = {
     'preco': [120000, 300000, 500000, 800000, 1000000,
               1500000, 2500000, 5000000, 10500000],
@@ -255,17 +273,6 @@ df_filtrado = df_filtrado.copy()
 df_filtrado["valor_tooltip"] = df_filtrado[coluna_valor]
 
 # =========================
-# Métricas
-# =========================
-num_imoveis = len(df_filtrado)
-media_imoveis = df_filtrado[coluna_valor].mean() if num_imoveis else 0
-
-with col_filters:
-    st.markdown("## 📊 Estatísticas")
-    st.markdown(f'<div class="sidebar-metric">🔢 Imóveis encontrados: {num_imoveis}</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="sidebar-metric">📈 Média ({tipo_estatistica}): R$ {media_imoveis:,.2f}</div>', unsafe_allow_html=True)
-
-# =========================
 # Auxiliares de gráfico (matplotlib)
 # =========================
 def style_axes(ax):
@@ -309,8 +316,6 @@ with col_map:
             predicate="within"
         )
 
-        # Estatísticas completas por bairro (média, mínimo, máximo, variação),
-        # igual ao que já existia na versão Dash.
         df_stats = gdf_join.groupby("NOME")[coluna_valor].agg(
             media="mean", minimo="min", maximo="max"
         ).reset_index()
@@ -382,54 +387,73 @@ with col_map:
         tooltip = {"html": "{Tipo} — R$ {valor_tooltip}"}
 
     elif tipo_mapa == "Densidade 3D (hexbin)":
-        # Equivalente ao "Cluster" antigo, mas com visual deck.gl: agrega os
-        # pontos em hexágonos e usa altura/cor para densidade (quantidade de
-        # imóveis) ou para o valor médio, conforme escolhido no filtro.
-        # Paleta em tons de teal, igual ao mapa de Pontos.
-        cor_range_teal = [
-            [8, 48, 51],
-            [10, 80, 85],
-            [0, 130, 132],
-            [0, 170, 172],
-            [0, 206, 209],
-            [140, 240, 240],
-        ]
-
-        hexagon_kwargs = dict(
-            get_position=["longitude", "latitude"],
-            radius=150,
-            elevation_scale=3,  # fixo, conforme calibrado
-            extruded=True,
-            coverage=1,
-            pickable=True,
-            color_range=cor_range_teal,
-        )
-
-        if metrica_hexbin == "Valor médio":
+        if metrica_hexbin == "Quantidade de imóveis":
+            # HexagonLayer nativa do deck.gl: agrega por contagem de pontos.
+            # Essa via já é confiável (é a que estava funcionando).
             layers.append(
                 pdk.Layer(
                     "HexagonLayer",
                     df_filtrado,
-                    get_elevation_weight="valor_tooltip",
-                    elevation_aggregation="MEAN",
-                    get_color_weight="valor_tooltip",
-                    color_aggregation="MEAN",
-                    elevation_range=[0, 3000],
-                    gpu_aggregation=False,
-                    **hexagon_kwargs,
-                )
-            )
-            tooltip = {"html": "Valor médio na região: R$ {colorValue}"}
-        else:
-            layers.append(
-                pdk.Layer(
-                    "HexagonLayer",
-                    df_filtrado,
+                    get_position=["longitude", "latitude"],
+                    radius=150,
+                    elevation_scale=3,
                     elevation_range=[0, 1000],
-                    **hexagon_kwargs,
+                    extruded=True,
+                    coverage=1,
+                    pickable=True,
+                    color_range=cor_range_teal,
                 )
             )
             tooltip = {"html": "Imóveis nesta região: {elevationValue}"}
+        else:
+            # "Valor médio": a agregação ponderada nativa do HexagonLayer se
+            # mostrou pouco confiável neste ambiente, então calculamos a
+            # média por bairro nós mesmos (mesma lógica já comprovada do
+            # mapa Coroplético) e extrudamos os polígonos em 3D por valor.
+            gdf_imoveis = gpd.GeoDataFrame(
+                df_filtrado,
+                geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
+                crs="EPSG:4326",
+            )
+            gdf_join = gpd.sjoin(
+                gdf_imoveis, gdf_bairros[["geometry", "NOME"]], how="left", predicate="within"
+            )
+            media_bairro = gdf_join.groupby("NOME")[coluna_valor].mean().reset_index()
+            media_bairro.columns = ["Bairro", "media"]
+
+            gdf_plot3d = gdf_bairros.merge(media_bairro, left_on="NOME", right_on="Bairro", how="left")
+
+            vmin = gdf_plot3d["media"].min()
+            vmax = gdf_plot3d["media"].max()
+
+            gdf_plot3d["fill_color"] = gdf_plot3d["media"].apply(lambda v: valor_para_cor_teal(v, vmin, vmax))
+            gdf_plot3d["media_fmt"] = gdf_plot3d["media"].apply(
+                lambda v: f"R$ {v:,.2f}" if pd.notna(v) else "sem dados"
+            )
+            if pd.notna(vmax) and vmax > vmin:
+                gdf_plot3d["elevacao"] = ((gdf_plot3d["media"] - vmin) / (vmax - vmin) * 1800).fillna(0)
+            else:
+                gdf_plot3d["elevacao"] = 0
+
+            geojson_3d = json.loads(
+                gdf_plot3d[["geometry", "NOME", "media_fmt", "fill_color", "elevacao"]].to_json()
+            )
+
+            layers.append(
+                pdk.Layer(
+                    "GeoJsonLayer",
+                    geojson_3d,
+                    stroked=True,
+                    filled=True,
+                    extruded=True,
+                    wireframe=True,
+                    get_elevation="properties.elevacao",
+                    get_fill_color="properties.fill_color",
+                    get_line_color=[58, 58, 58],
+                    pickable=True,
+                )
+            )
+            tooltip = {"html": "<b>{NOME}</b><br/>Valor médio: {media_fmt}"}
 
     elif tipo_mapa == "Calor":
         layers.append(
@@ -451,6 +475,20 @@ with col_map:
     )
     st.pydeck_chart(deck, height=480)
 
+    # =========================
+    # Estatísticas em linha, logo abaixo do mapa
+    # =========================
+    num_imoveis = len(df_filtrado)
+    media_imoveis = df_filtrado[coluna_valor].mean() if num_imoveis else 0
+    minimo_imoveis = df_filtrado[coluna_valor].min() if num_imoveis else 0
+    maximo_imoveis = df_filtrado[coluna_valor].max() if num_imoveis else 0
+
+    stat1, stat2, stat3, stat4 = st.columns(4, gap="small")
+    stat1.metric("🔢 Imóveis encontrados", f"{num_imoveis}")
+    stat2.metric("📈 Média", f"R$ {media_imoveis:,.0f}")
+    stat3.metric("⬇️ Mínimo", f"R$ {minimo_imoveis:,.0f}")
+    stat4.metric("⬆️ Máximo", f"R$ {maximo_imoveis:,.0f}")
+
 # =========================
 # Gráfico (matplotlib)
 # =========================
@@ -459,14 +497,15 @@ with col_chart:
     fig = None
 
     if grafico_tipo == "Histograma":
-        fig, ax = plt.subplots(figsize=(6, 4))
+        fig, ax = plt.subplots(figsize=(5, 4))
         fig.patch.set_facecolor("#111111")
         ax.set_facecolor("#111111")
         ax.hist(df_filtrado[coluna_valor], bins=30, color="#00CED1", edgecolor="white")
-        ax.set_title(f"Distribuição de {tipo_estatistica}", fontsize=11, pad=6)
+        ax.set_title(f"Distribuição de {tipo_estatistica}", fontsize=10, pad=6)
         ax.set_xlabel("Valor (R$)")
-        ax.set_ylabel("Quantidade de imóveis")
+        ax.set_ylabel("Qtd.")
         ax.xaxis.set_major_formatter(currency_formatter)
+        ax.tick_params(axis="x", labelrotation=30)
         style_axes(ax)
         fig.tight_layout()
 
@@ -488,11 +527,11 @@ with col_chart:
             .sort_values(ascending=False)
             .head(15)
         )
-        fig, ax = plt.subplots(figsize=(6, 4))
+        fig, ax = plt.subplots(figsize=(5, 4))
         fig.patch.set_facecolor("#111111")
         ax.set_facecolor("#111111")
         media_bairro.plot(kind="barh", ax=ax, color="#00CED1")
-        ax.set_title(f"Média de {tipo_estatistica} por bairro (top 15)", fontsize=11, pad=6)
+        ax.set_title(f"Top 15 bairros", fontsize=10, pad=6)
         ax.set_xlabel("Valor médio (R$)")
         ax.xaxis.set_major_formatter(currency_formatter)
         ax.invert_yaxis()
@@ -500,12 +539,12 @@ with col_chart:
         fig.tight_layout()
 
     elif grafico_tipo == "Boxplot por tipo":
-        fig, ax = plt.subplots(figsize=(6, 4))
+        fig, ax = plt.subplots(figsize=(5, 4))
         fig.patch.set_facecolor("#111111")
         ax.set_facecolor("#111111")
         sns.boxplot(data=df_filtrado, x="Tipo", y=coluna_valor, ax=ax, palette="Set2")
-        ax.set_title(f"Distribuição de {tipo_estatistica} por tipo de imóvel", fontsize=11, pad=6)
-        ax.set_xlabel("Tipo de imóvel")
+        ax.set_title(f"Por tipo de imóvel", fontsize=10, pad=6)
+        ax.set_xlabel("")
         ax.set_ylabel("Valor (R$)")
         ax.tick_params(axis="x", rotation=30)
         ax.yaxis.set_major_formatter(currency_formatter)
@@ -524,9 +563,9 @@ st.markdown("### 📈 Histórico e Previsão — IPTU e ITBI")
 SERIE_HIST_PATH = "data/serie historica iptu itbi.xlsx"
 
 # Aumento de alíquota do município aprovado para 2026: reajusta o valor
-# previsto de IPTU em +30% a partir desse ano (mesma regra usada na versão
-# Dash). Ajuste aqui se o percentual, o ano ou o imposto afetado mudar.
-REAJUSTE_ALIQUOTA_IPTU = {"ano_inicio": 2026, "fator": 1.30}
+# previsto de IPTU a partir desse ano. Ajuste aqui se o percentual, o ano
+# ou o imposto afetado mudar.
+REAJUSTE_ALIQUOTA_IPTU = {"ano_inicio": 2026, "fator": 1.20}
 
 
 @st.cache_data(show_spinner=True)
@@ -609,7 +648,7 @@ else:
         with col_graf:
             st.plotly_chart(fig_temp, use_container_width=True)
         with col_cards:
-            st.markdown("**Previsão IPTU** (com reajuste de alíquota +30% a partir de 2026)")
+            st.markdown("**Previsão IPTU**")
             for _, row in prev_iptu.iterrows():
                 st.markdown(f"- {int(row['ano'])}: R$ {row['IPTU_prev']:,.2f}")
             st.markdown("**Previsão ITBI**")
