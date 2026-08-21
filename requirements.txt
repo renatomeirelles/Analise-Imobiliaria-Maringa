@@ -1,5 +1,7 @@
 streamlit
 pydeck
+plotly
+statsmodels
 pandas
 numpy
 geopandas

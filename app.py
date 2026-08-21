@@ -2,15 +2,20 @@
 # Imports e configuração inicial
 # =========================
 import json
+import warnings
 
 import matplotlib.pyplot as plt
 import pandas as pd
 import geopandas as gpd
+import plotly.express as px
 import pydeck as pdk
 import seaborn as sns
 import streamlit as st
 from matplotlib.ticker import FuncFormatter
 from pathlib import Path
+from statsmodels.tsa.arima.model import ARIMA
+
+warnings.filterwarnings("ignore")
 
 # Configuração da página
 st.set_page_config(
@@ -61,21 +66,6 @@ h1, h2, h3 {
     margin-top: 1rem;
     margin-bottom: 0.8rem;
 }
-.titulo-duplo {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.4rem;
-}
-.titulo-duplo h3 {
-    background-color: #111;
-    color: white;
-    font-size: 18px;
-    font-weight: 600;
-    padding: 0.4rem 0.8rem;
-    border-radius: 6px;
-    margin: 0;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -85,9 +75,12 @@ st.markdown(
 )
 
 # =========================
-# Filtros
+# Layout: UMA ÚNICA declaração de colunas para mapa, gráfico e filtros.
+# (O "card vazio" que aparecia no topo era causado por uma segunda
+# declaração de colunas mais abaixo, que deixava as duas primeiras colunas
+# desta aqui vazias, mas ainda ocupando o espaço da tela.)
 # =========================
-col_map, col_chart, col_filters = st.columns([6, 6, 4], gap="small")
+col_map, col_chart, col_filters = st.columns([7, 5, 4], gap="small")
 
 with col_filters:
     st.markdown("## 🎛️ Filtros")
@@ -115,27 +108,11 @@ with col_filters:
         key="mapa_selectbox"
     )
 
-    mostrar_rotulos_bairro = st.checkbox(
-        "Mostrar valor médio por bairro no mapa",
-        value=True,
-        key="rotulos_bairro_checkbox",
-        help="Só se aplica quando o tipo de mapa é 'Coroplético'."
-    )
-
     metrica_hexbin = st.selectbox(
         "No hexbin 3D, medir por:",
         ["Quantidade de imóveis", "Valor médio"],
         index=0,
         key="metrica_hexbin_selectbox",
-        help="Só se aplica quando o tipo de mapa é 'Densidade 3D (hexbin)'."
-    )
-
-    escala_altura_hexbin = st.slider(
-        "Escala da altura dos hexágonos (3D)",
-        min_value=1,
-        max_value=30,
-        value=6,
-        key="escala_altura_slider",
         help="Só se aplica quando o tipo de mapa é 'Densidade 3D (hexbin)'."
     )
 
@@ -302,8 +279,6 @@ def style_axes(ax):
 
 currency_formatter = FuncFormatter(lambda x, pos: f"R$ {x:,.0f}".replace(",", "."))
 
-col_map, col_chart = st.columns([7, 5], gap="small")
-
 # =========================
 # Mapa (pydeck / deck.gl)
 # =========================
@@ -333,10 +308,17 @@ with col_map:
             how="left",
             predicate="within"
         )
-        preco_bairro = gdf_join.groupby("NOME")[coluna_valor].mean().reset_index()
-        preco_bairro.columns = ["Bairro", "media"]
 
-        gdf_plot = gdf_bairros.merge(preco_bairro, left_on="NOME", right_on="Bairro", how="left")
+        # Estatísticas completas por bairro (média, mínimo, máximo, variação),
+        # igual ao que já existia na versão Dash.
+        df_stats = gdf_join.groupby("NOME")[coluna_valor].agg(
+            media="mean", minimo="min", maximo="max"
+        ).reset_index()
+        media_municipio = df_filtrado[coluna_valor].mean()
+        df_stats["variacao"] = ((df_stats["media"] - media_municipio) / media_municipio) * 100
+        df_stats = df_stats.round(2)
+
+        gdf_plot = gdf_bairros.merge(df_stats, left_on="NOME", right_on="NOME", how="left")
 
         def cor_por_faixa(valor):
             if pd.isna(valor) or valor <= 0:
@@ -347,10 +329,22 @@ with col_map:
             return cores_rgba[-1]
 
         gdf_plot["fill_color"] = gdf_plot["media"].apply(cor_por_faixa)
-        gdf_plot["media_fmt"] = gdf_plot["media"].apply(
-            lambda v: f"R$ {v:,.2f}" if pd.notna(v) else "sem dados"
+
+        def fmt_moeda(v):
+            return f"R$ {v:,.2f}" if pd.notna(v) else "sem dados"
+
+        gdf_plot["media_fmt"] = gdf_plot["media"].apply(fmt_moeda)
+        gdf_plot["minimo_fmt"] = gdf_plot["minimo"].apply(fmt_moeda)
+        gdf_plot["maximo_fmt"] = gdf_plot["maximo"].apply(fmt_moeda)
+        gdf_plot["variacao_fmt"] = gdf_plot["variacao"].apply(
+            lambda v: f"{v:.2f}%" if pd.notna(v) else "sem dados"
         )
-        geojson = json.loads(gdf_plot[["geometry", "NOME", "media_fmt", "fill_color"]].to_json())
+
+        geojson = json.loads(
+            gdf_plot[[
+                "geometry", "NOME", "media_fmt", "minimo_fmt", "maximo_fmt", "variacao_fmt", "fill_color"
+            ]].to_json()
+        )
 
         layers.append(
             pdk.Layer(
@@ -364,26 +358,15 @@ with col_map:
                 pickable=True,
             )
         )
-        tooltip = {"html": "<b>{NOME}</b><br/>Média: {media_fmt}"}
-
-        if mostrar_rotulos_bairro:
-            gdf_plot_validos = gdf_plot[gdf_plot["media"].notna()].copy()
-            centroides = gdf_plot_validos.geometry.centroid
-            gdf_plot_validos["lon_centroide"] = centroides.x
-            gdf_plot_validos["lat_centroide"] = centroides.y
-
-            layers.append(
-                pdk.Layer(
-                    "TextLayer",
-                    gdf_plot_validos,
-                    get_position=["lon_centroide", "lat_centroide"],
-                    get_text="media_fmt",
-                    get_size=13,
-                    get_color=[255, 255, 255, 220],
-                    get_alignment_baseline="'center'",
-                    pickable=False,
-                )
+        tooltip = {
+            "html": (
+                "<b>{NOME}</b><br/>"
+                "Média: {media_fmt}<br/>"
+                "Mínimo: {minimo_fmt}<br/>"
+                "Máximo: {maximo_fmt}<br/>"
+                "Variação vs. município: {variacao_fmt}"
             )
+        }
 
     elif tipo_mapa == "Pontos":
         layers.append(
@@ -399,10 +382,10 @@ with col_map:
         tooltip = {"html": "{Tipo} — R$ {valor_tooltip}"}
 
     elif tipo_mapa == "Densidade 3D (hexbin)":
-        # Equivalente ao "Cluster" antigo, mas com visual deck.gl:
-        # agrega os pontos em hexágonos e usa altura/cor para densidade
-        # (quantidade de imóveis) ou para o valor médio, conforme escolhido
-        # no filtro. Paleta em tons de teal, igual ao mapa de Pontos.
+        # Equivalente ao "Cluster" antigo, mas com visual deck.gl: agrega os
+        # pontos em hexágonos e usa altura/cor para densidade (quantidade de
+        # imóveis) ou para o valor médio, conforme escolhido no filtro.
+        # Paleta em tons de teal, igual ao mapa de Pontos.
         cor_range_teal = [
             [8, 48, 51],
             [10, 80, 85],
@@ -415,7 +398,7 @@ with col_map:
         hexagon_kwargs = dict(
             get_position=["longitude", "latitude"],
             radius=150,
-            elevation_scale=escala_altura_hexbin,
+            elevation_scale=3,  # fixo, conforme calibrado
             extruded=True,
             coverage=1,
             pickable=True,
@@ -431,7 +414,8 @@ with col_map:
                     elevation_aggregation="MEAN",
                     get_color_weight="valor_tooltip",
                     color_aggregation="MEAN",
-                    elevation_range=[0, 600],
+                    elevation_range=[0, 3000],
+                    gpu_aggregation=False,
                     **hexagon_kwargs,
                 )
             )
@@ -530,3 +514,107 @@ with col_chart:
 
     if fig is not None:
         st.pyplot(fig, clear_figure=True)
+
+# =========================
+# Série histórica IPTU/ITBI + previsão ARIMA
+# =========================
+st.markdown("---")
+st.markdown("### 📈 Histórico e Previsão — IPTU e ITBI")
+
+SERIE_HIST_PATH = "data/serie historica iptu itbi.xlsx"
+
+# Aumento de alíquota do município aprovado para 2026: reajusta o valor
+# previsto de IPTU em +30% a partir desse ano (mesma regra usada na versão
+# Dash). Ajuste aqui se o percentual, o ano ou o imposto afetado mudar.
+REAJUSTE_ALIQUOTA_IPTU = {"ano_inicio": 2026, "fator": 1.30}
+
+
+@st.cache_data(show_spinner=True)
+def carregar_serie_historica(path):
+    df_raw = pd.read_excel(path, header=0)
+    df_final = df_raw.set_index("ANO").T.reset_index().rename(columns={"index": "ano"})
+    df_final["ano"] = df_final["ano"].astype(int)
+
+    def para_numero(serie):
+        if pd.api.types.is_numeric_dtype(serie):
+            return pd.to_numeric(serie, errors="coerce")
+        limpo = (
+            serie.astype(str)
+            .str.replace("R$", "", regex=False)
+            .str.replace(".", "", regex=False)
+            .str.replace(",", ".", regex=False)
+            .str.strip()
+        )
+        return pd.to_numeric(limpo, errors="coerce")
+
+    df_final["IPTU"] = para_numero(df_final["IPTU"])
+    df_final["ITBI"] = para_numero(df_final["ITBI"])
+    df_final = df_final.sort_values("ano").reset_index(drop=True)
+    return df_final
+
+
+def prever_arima(df, coluna, steps=2, reajuste=None):
+    serie = df[["ano", coluna]].dropna(subset=[coluna]).set_index("ano")[coluna]
+    ultimo_ano_real = int(serie.index.max())
+
+    model = ARIMA(serie, order=(1, 1, 1))
+    fit = model.fit()
+    forecast = fit.forecast(steps=steps)
+    anos_future = list(range(ultimo_ano_real + 1, ultimo_ano_real + 1 + steps))
+    valores = forecast.round(2).to_numpy()
+
+    if reajuste is not None:
+        valores = [
+            round(v * reajuste["fator"], 2) if ano >= reajuste["ano_inicio"] else round(v, 2)
+            for ano, v in zip(anos_future, valores)
+        ]
+
+    return pd.DataFrame({"ano": anos_future, f"{coluna}_prev": valores}), ultimo_ano_real
+
+
+if not Path(SERIE_HIST_PATH).exists():
+    st.warning(f"Arquivo de série histórica não encontrado: {SERIE_HIST_PATH}")
+else:
+    try:
+        df_serie = carregar_serie_historica(SERIE_HIST_PATH)
+        prev_iptu, ultimo_ano_iptu = prever_arima(df_serie, "IPTU", reajuste=REAJUSTE_ALIQUOTA_IPTU)
+        prev_itbi, ultimo_ano_itbi = prever_arima(df_serie, "ITBI")
+
+        def conectar_previsao(df_prev, coluna_prev, coluna_hist, tipo_label):
+            ultimo_hist = (
+                df_serie[["ano", coluna_hist]]
+                .dropna(subset=[coluna_hist])
+                .rename(columns={coluna_hist: "valor"})
+                .tail(1)
+                .assign(tipo=tipo_label)
+            )
+            prev_plot = df_prev.rename(columns={coluna_prev: "valor"}).assign(tipo=tipo_label)
+            return pd.concat([ultimo_hist, prev_plot])
+
+        partes_plot = [
+            df_serie[["ano", "IPTU"]].rename(columns={"IPTU": "valor"}).assign(tipo="Histórico IPTU"),
+            conectar_previsao(prev_iptu, "IPTU_prev", "IPTU", "Previsto IPTU"),
+            df_serie[["ano", "ITBI"]].rename(columns={"ITBI": "valor"}).assign(tipo="Histórico ITBI"),
+            conectar_previsao(prev_itbi, "ITBI_prev", "ITBI", "Previsto ITBI"),
+        ]
+        df_plot_serie = pd.concat(partes_plot)
+
+        fig_temp = px.line(
+            df_plot_serie, x="ano", y="valor", color="tipo",
+            title="Histórico e Previsões IPTU/ITBI"
+        )
+        fig_temp.update_layout(template="plotly_dark", height=420)
+
+        col_graf, col_cards = st.columns([8, 4], gap="small")
+        with col_graf:
+            st.plotly_chart(fig_temp, use_container_width=True)
+        with col_cards:
+            st.markdown("**Previsão IPTU** (com reajuste de alíquota +30% a partir de 2026)")
+            for _, row in prev_iptu.iterrows():
+                st.markdown(f"- {int(row['ano'])}: R$ {row['IPTU_prev']:,.2f}")
+            st.markdown("**Previsão ITBI**")
+            for _, row in prev_itbi.iterrows():
+                st.markdown(f"- {int(row['ano'])}: R$ {row['ITBI_prev']:,.2f}")
+
+    except Exception as e:
+        st.error(f"Não foi possível calcular a previsão IPTU/ITBI: {e}")
