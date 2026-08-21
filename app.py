@@ -6,10 +6,12 @@ import warnings
 
 import pandas as pd
 import geopandas as gpd
+import osmnx as ox
 import plotly.express as px
 import pydeck as pdk
 import streamlit as st
 from pathlib import Path
+from shapely.geometry import box
 from statsmodels.tsa.arima.model import ARIMA
 
 warnings.filterwarnings("ignore")
@@ -97,7 +99,7 @@ with col_filters:
 
     tipo_mapa = st.selectbox(
         "Selecione o tipo de mapa:",
-        ["Coroplético", "Pontos", "Densidade 3D (hexbin)", "Calor"],
+        ["Coroplético", "Pontos", "Densidade 3D (hexbin)", "Calor", "Edifícios 3D (OSM)"],
         index=0,
         key="mapa_selectbox"
     )
@@ -278,7 +280,7 @@ with col_map:
         latitude=-23.4205,
         longitude=-51.9331,
         zoom=12,
-        pitch=45 if tipo_mapa == "Densidade 3D (hexbin)" else 0,
+        pitch=45 if tipo_mapa in ("Densidade 3D (hexbin)", "Edifícios 3D (OSM)") else 0,
     )
 
     bins = faixas_dict.get(estatistica_norm, faixas_base['preco'])
@@ -430,6 +432,72 @@ with col_map:
                 )
             )
             tooltip = {"html": "<b>{NOME}</b><br/>Valor médio: {media_fmt}"}
+
+    elif tipo_mapa == "Edifícios 3D (OSM)":
+        # Contornos de prédios/casas do OpenStreetMap, extrudados por altura
+        # estimada (tag 'height' quando existe; senão, andares x 3m; senão,
+        # uma altura padrão). Sem Blender — é a mesma técnica usada nos
+        # showcases oficiais do deck.gl.
+        @st.cache_data(show_spinner="Baixando contornos de edifícios do OpenStreetMap (só na primeira vez)...")
+        def carregar_predios_osm(_gdf_bairros_bounds):
+            minx, miny, maxx, maxy = _gdf_bairros_bounds
+            area = box(minx, miny, maxx, maxy)
+            gdf_predios = ox.features_from_polygon(area, tags={"building": True})
+            gdf_predios = gdf_predios[gdf_predios.geometry.type.isin(["Polygon", "MultiPolygon"])].copy()
+
+            def estimar_altura(row):
+                altura_tag = row.get("height")
+                if pd.notna(altura_tag):
+                    try:
+                        return float(str(altura_tag).lower().replace("m", "").strip())
+                    except ValueError:
+                        pass
+                andares = row.get("building:levels")
+                if pd.notna(andares):
+                    try:
+                        return float(andares) * 3.0
+                    except ValueError:
+                        pass
+                return 9.0  # padrão: ~3 andares, quando não há dado na base
+
+            gdf_predios["altura"] = gdf_predios.apply(estimar_altura, axis=1)
+            return gdf_predios[["geometry", "altura"]].reset_index(drop=True)
+
+        try:
+            bounds = tuple(gdf_bairros.total_bounds)
+            gdf_predios = carregar_predios_osm(bounds)
+
+            if gdf_predios.empty:
+                st.info("Nenhum contorno de edifício encontrado no OpenStreetMap para esta área.")
+            else:
+                vmin_h, vmax_h = gdf_predios["altura"].min(), gdf_predios["altura"].max()
+                gdf_predios["fill_color"] = gdf_predios["altura"].apply(
+                    lambda v: valor_para_cor_teal(v, vmin_h, vmax_h)
+                )
+                gdf_predios["altura_fmt"] = gdf_predios["altura"].apply(lambda v: f"{v:.0f} m (estimado)")
+
+                geojson_predios = json.loads(
+                    gdf_predios[["geometry", "altura", "altura_fmt", "fill_color"]].to_json()
+                )
+
+                layers.append(
+                    pdk.Layer(
+                        "GeoJsonLayer",
+                        geojson_predios,
+                        stroked=False,
+                        filled=True,
+                        extruded=True,
+                        get_elevation="properties.altura",
+                        get_fill_color="properties.fill_color",
+                        pickable=True,
+                    )
+                )
+                tooltip = {"html": "Altura estimada: {altura_fmt}"}
+        except Exception as e:
+            st.warning(
+                "Não foi possível carregar os edifícios do OpenStreetMap agora "
+                f"(a base pode estar indisponível ou a área é grande demais): {e}"
+            )
 
     elif tipo_mapa == "Calor":
         layers.append(
@@ -608,18 +676,47 @@ else:
             df_plot_serie, x="ano", y="valor", color="tipo",
             title="Histórico e Previsões IPTU/ITBI"
         )
-        fig_temp.update_layout(template="plotly_dark", height=420)
+        fig_temp.update_layout(
+            template="plotly_dark",
+            height=420,
+            xaxis=dict(showgrid=True, gridcolor="#333333", gridwidth=1),
+            yaxis=dict(showgrid=True, gridcolor="#333333", gridwidth=1),
+            plot_bgcolor="#0e0e0e",
+        )
+        # Destaca a zona de previsão com um fundo levemente diferente (cinza).
+        inicio_previsao = min(ultimo_ano_iptu, ultimo_ano_itbi)
+        fim_previsao = int(df_plot_serie["ano"].max())
+        fig_temp.add_vrect(
+            x0=inicio_previsao, x1=fim_previsao,
+            fillcolor="#888888", opacity=0.15, line_width=0, layer="below",
+        )
 
-        col_graf, col_cards = st.columns([8, 4], gap="small")
+        col_graf, col_cards = st.columns([10, 2], gap="medium")
         with col_graf:
             st.plotly_chart(fig_temp, use_container_width=True)
         with col_cards:
-            st.markdown("**Previsão IPTU**")
+            st.markdown(
+                """
+                <style>
+                .card-previsao {
+                    background-color: #1a1a1a;
+                    border-radius: 8px;
+                    padding: 0.8rem 1rem;
+                    margin-top: 1rem;
+                }
+                </style>
+                """,
+                unsafe_allow_html=True
+            )
+            previsao_html = "<div class='card-previsao'>"
+            previsao_html += "<b>Previsão IPTU</b><ul>"
             for _, row in prev_iptu.iterrows():
-                st.markdown(f"- {int(row['ano'])}: R$ {row['IPTU_prev']:,.2f}")
-            st.markdown("**Previsão ITBI**")
+                previsao_html += f"<li>{int(row['ano'])}: R$ {row['IPTU_prev']:,.2f}</li>"
+            previsao_html += "</ul><b>Previsão ITBI</b><ul>"
             for _, row in prev_itbi.iterrows():
-                st.markdown(f"- {int(row['ano'])}: R$ {row['ITBI_prev']:,.2f}")
+                previsao_html += f"<li>{int(row['ano'])}: R$ {row['ITBI_prev']:,.2f}</li>"
+            previsao_html += "</ul></div>"
+            st.markdown(previsao_html, unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"Não foi possível calcular a previsão IPTU/ITBI: {e}")

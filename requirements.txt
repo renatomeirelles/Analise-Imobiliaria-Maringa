@@ -2,10 +2,9 @@ streamlit
 pydeck
 plotly
 statsmodels
+osmnx
 pandas
 numpy
 geopandas
 shapely
-matplotlib
-seaborn
 openpyxl
