@@ -4,14 +4,11 @@
 import json
 import warnings
 
-import matplotlib.pyplot as plt
 import pandas as pd
 import geopandas as gpd
 import plotly.express as px
 import pydeck as pdk
-import seaborn as sns
 import streamlit as st
-from matplotlib.ticker import FuncFormatter
 from pathlib import Path
 from statsmodels.tsa.arima.model import ARIMA
 
@@ -19,14 +16,10 @@ warnings.filterwarnings("ignore")
 
 # Configuração da página
 st.set_page_config(
-    page_title="Análise Estatística e Espacial",
+    page_title="Plataforma de Inteligência Territorial",
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# Tema escuro para gráficos
-plt.style.use("dark_background")
-sns.set(style="darkgrid")
 
 # =========================
 # CSS
@@ -46,11 +39,6 @@ h1, h2, h3 {
     color: white !important;
     margin-bottom: 0.6rem;
 }
-.sidebar-metric {
-    color: white !important;
-    font-size: 15px;
-    font-weight: 500;
-}
 [data-testid="stToolbar"] {
     display: none !important;
 }
@@ -66,17 +54,25 @@ h1, h2, h3 {
     margin-top: 1rem;
     margin-bottom: 0.8rem;
 }
+.stat-pequena {
+    color: white !important;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.4;
+}
+.stat-pequena b {
+    font-size: 16px;
+}
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown(
-    '<div class="titulo-com-fundo">Análise Estatística e Espacial da Oferta de Imóveis Residenciais</div>',
+    '<div class="titulo-com-fundo">Plataforma de Inteligência Territorial</div>',
     unsafe_allow_html=True
 )
 
 # =========================
 # Layout: filtros (esquerda) | mapa (centro, maior) | gráfico (direita, menor)
-# Uma única declaração de colunas, reaproveitada ao longo do script.
 # =========================
 col_filters, col_map, col_chart = st.columns([3, 6, 3], gap="small")
 
@@ -273,20 +269,6 @@ df_filtrado = df_filtrado.copy()
 df_filtrado["valor_tooltip"] = df_filtrado[coluna_valor]
 
 # =========================
-# Auxiliares de gráfico (matplotlib)
-# =========================
-def style_axes(ax):
-    ax.title.set_color("white")
-    ax.xaxis.label.set_color("white")
-    ax.yaxis.label.set_color("white")
-    for spine in ax.spines.values():
-        spine.set_color("#bfbfbf")
-    ax.grid(True, color="#444444", alpha=0.3)
-    ax.tick_params(colors="white")
-
-currency_formatter = FuncFormatter(lambda x, pos: f"R$ {x:,.0f}".replace(",", "."))
-
-# =========================
 # Mapa (pydeck / deck.gl)
 # =========================
 with col_map:
@@ -388,8 +370,6 @@ with col_map:
 
     elif tipo_mapa == "Densidade 3D (hexbin)":
         if metrica_hexbin == "Quantidade de imóveis":
-            # HexagonLayer nativa do deck.gl: agrega por contagem de pontos.
-            # Essa via já é confiável (é a que estava funcionando).
             layers.append(
                 pdk.Layer(
                     "HexagonLayer",
@@ -406,10 +386,6 @@ with col_map:
             )
             tooltip = {"html": "Imóveis nesta região: {elevationValue}"}
         else:
-            # "Valor médio": a agregação ponderada nativa do HexagonLayer se
-            # mostrou pouco confiável neste ambiente, então calculamos a
-            # média por bairro nós mesmos (mesma lógica já comprovada do
-            # mapa Coroplético) e extrudamos os polígonos em 3D por valor.
             gdf_imoveis = gpd.GeoDataFrame(
                 df_filtrado,
                 geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
@@ -476,38 +452,38 @@ with col_map:
     st.pydeck_chart(deck, height=480)
 
     # =========================
-    # Estatísticas em linha, logo abaixo do mapa
+    # Estatísticas resumidas, pequenas, logo abaixo do mapa
+    # (só quantidade de imóveis e valor médio, como pedido)
     # =========================
     num_imoveis = len(df_filtrado)
     media_imoveis = df_filtrado[coluna_valor].mean() if num_imoveis else 0
-    minimo_imoveis = df_filtrado[coluna_valor].min() if num_imoveis else 0
-    maximo_imoveis = df_filtrado[coluna_valor].max() if num_imoveis else 0
 
-    stat1, stat2, stat3, stat4 = st.columns(4, gap="small")
-    stat1.metric("🔢 Imóveis encontrados", f"{num_imoveis}")
-    stat2.metric("📈 Média", f"R$ {media_imoveis:,.0f}")
-    stat3.metric("⬇️ Mínimo", f"R$ {minimo_imoveis:,.0f}")
-    stat4.metric("⬆️ Máximo", f"R$ {maximo_imoveis:,.0f}")
+    stat1, stat2 = st.columns(2, gap="small")
+    with stat1:
+        st.markdown(
+            f'<div class="stat-pequena">🔢 Imóveis encontrados<br><b>{num_imoveis}</b></div>',
+            unsafe_allow_html=True
+        )
+    with stat2:
+        st.markdown(
+            f'<div class="stat-pequena">📈 Valor médio<br><b>R$ {media_imoveis:,.2f}</b></div>',
+            unsafe_allow_html=True
+        )
 
 # =========================
-# Gráfico (matplotlib)
+# Gráfico (Plotly — interativo, com hover)
 # =========================
 with col_chart:
     st.markdown("### 📉 Gráfico")
-    fig = None
 
     if grafico_tipo == "Histograma":
-        fig, ax = plt.subplots(figsize=(5, 4))
-        fig.patch.set_facecolor("#111111")
-        ax.set_facecolor("#111111")
-        ax.hist(df_filtrado[coluna_valor], bins=30, color="#00CED1", edgecolor="white")
-        ax.set_title(f"Distribuição de {tipo_estatistica}", fontsize=10, pad=6)
-        ax.set_xlabel("Valor (R$)")
-        ax.set_ylabel("Qtd.")
-        ax.xaxis.set_major_formatter(currency_formatter)
-        ax.tick_params(axis="x", labelrotation=30)
-        style_axes(ax)
-        fig.tight_layout()
+        fig = px.histogram(
+            df_filtrado, x=coluna_valor, nbins=30,
+            title=f"Distribuição de {tipo_estatistica}",
+            labels={coluna_valor: "Valor (R$)"},
+        )
+        fig.update_traces(marker_color="#00CED1")
+        fig.update_layout(template="plotly_dark", height=420, yaxis_title="Qtd. de imóveis")
 
     elif grafico_tipo == "Barras por bairro":
         gdf_imoveis = gpd.GeoDataFrame(
@@ -524,35 +500,28 @@ with col_chart:
         media_bairro = (
             gdf_join.groupby("NOME")[coluna_valor]
             .mean()
-            .sort_values(ascending=False)
-            .head(15)
+            .sort_values(ascending=True)
+            .tail(15)
+            .reset_index()
         )
-        fig, ax = plt.subplots(figsize=(5, 4))
-        fig.patch.set_facecolor("#111111")
-        ax.set_facecolor("#111111")
-        media_bairro.plot(kind="barh", ax=ax, color="#00CED1")
-        ax.set_title(f"Top 15 bairros", fontsize=10, pad=6)
-        ax.set_xlabel("Valor médio (R$)")
-        ax.xaxis.set_major_formatter(currency_formatter)
-        ax.invert_yaxis()
-        style_axes(ax)
-        fig.tight_layout()
+        fig = px.bar(
+            media_bairro, x=coluna_valor, y="NOME", orientation="h",
+            title="Top 15 bairros",
+            labels={coluna_valor: "Valor médio (R$)", "NOME": ""},
+        )
+        fig.update_traces(marker_color="#00CED1")
+        fig.update_layout(template="plotly_dark", height=420)
 
     elif grafico_tipo == "Boxplot por tipo":
-        fig, ax = plt.subplots(figsize=(5, 4))
-        fig.patch.set_facecolor("#111111")
-        ax.set_facecolor("#111111")
-        sns.boxplot(data=df_filtrado, x="Tipo", y=coluna_valor, ax=ax, palette="Set2")
-        ax.set_title(f"Por tipo de imóvel", fontsize=10, pad=6)
-        ax.set_xlabel("")
-        ax.set_ylabel("Valor (R$)")
-        ax.tick_params(axis="x", rotation=30)
-        ax.yaxis.set_major_formatter(currency_formatter)
-        style_axes(ax)
-        fig.tight_layout()
+        fig = px.box(
+            df_filtrado, x="Tipo", y=coluna_valor,
+            title="Distribuição por tipo de imóvel",
+            labels={coluna_valor: "Valor (R$)", "Tipo": ""},
+            color="Tipo",
+        )
+        fig.update_layout(template="plotly_dark", height=420, showlegend=False)
 
-    if fig is not None:
-        st.pyplot(fig, clear_figure=True)
+    st.plotly_chart(fig, use_container_width=True)
 
 # =========================
 # Série histórica IPTU/ITBI + previsão ARIMA
@@ -562,9 +531,6 @@ st.markdown("### 📈 Histórico e Previsão — IPTU e ITBI")
 
 SERIE_HIST_PATH = "data/serie historica iptu itbi.xlsx"
 
-# Aumento de alíquota do município aprovado para 2026: reajusta o valor
-# previsto de IPTU a partir desse ano. Ajuste aqui se o percentual, o ano
-# ou o imposto afetado mudar.
 REAJUSTE_ALIQUOTA_IPTU = {"ano_inicio": 2026, "fator": 1.20}
 
 
