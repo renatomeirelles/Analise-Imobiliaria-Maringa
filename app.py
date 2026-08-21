@@ -84,13 +84,6 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-st.markdown("""
-<div class="titulo-duplo">
-    <h3>Mapa</h3>
-    <h3>Gráfico</h3>
-</div>
-""", unsafe_allow_html=True)
-
 # =========================
 # Filtros
 # =========================
@@ -122,16 +115,36 @@ with col_filters:
         key="mapa_selectbox"
     )
 
+    mostrar_rotulos_bairro = st.checkbox(
+        "Mostrar valor médio por bairro no mapa",
+        value=True,
+        key="rotulos_bairro_checkbox",
+        help="Só se aplica quando o tipo de mapa é 'Coroplético'."
+    )
+
+    metrica_hexbin = st.selectbox(
+        "No hexbin 3D, medir por:",
+        ["Quantidade de imóveis", "Valor médio"],
+        index=0,
+        key="metrica_hexbin_selectbox",
+        help="Só se aplica quando o tipo de mapa é 'Densidade 3D (hexbin)'."
+    )
+
+    escala_altura_hexbin = st.slider(
+        "Escala da altura dos hexágonos (3D)",
+        min_value=1,
+        max_value=30,
+        value=6,
+        key="escala_altura_slider",
+        help="Só se aplica quando o tipo de mapa é 'Densidade 3D (hexbin)'."
+    )
+
     grafico_tipo = st.selectbox(
         "Selecione o gráfico:",
         ["Histograma", "Barras por bairro", "Boxplot por tipo"],
         index=0,
         key="grafico_selectbox"
     )
-
-    st.markdown("## 📊 Estatísticas")
-    st.markdown('<div class="sidebar-metric">🔢 Imóveis encontrados: --</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sidebar-metric">📈 Média: --</div>', unsafe_allow_html=True)
 
 # =========================
 # Funções de carga de dados
@@ -353,6 +366,25 @@ with col_map:
         )
         tooltip = {"html": "<b>{NOME}</b><br/>Média: {media_fmt}"}
 
+        if mostrar_rotulos_bairro:
+            gdf_plot_validos = gdf_plot[gdf_plot["media"].notna()].copy()
+            centroides = gdf_plot_validos.geometry.centroid
+            gdf_plot_validos["lon_centroide"] = centroides.x
+            gdf_plot_validos["lat_centroide"] = centroides.y
+
+            layers.append(
+                pdk.Layer(
+                    "TextLayer",
+                    gdf_plot_validos,
+                    get_position=["lon_centroide", "lat_centroide"],
+                    get_text="media_fmt",
+                    get_size=13,
+                    get_color=[255, 255, 255, 220],
+                    get_alignment_baseline="'center'",
+                    pickable=False,
+                )
+            )
+
     elif tipo_mapa == "Pontos":
         layers.append(
             pdk.Layer(
@@ -368,21 +400,52 @@ with col_map:
 
     elif tipo_mapa == "Densidade 3D (hexbin)":
         # Equivalente ao "Cluster" antigo, mas com visual deck.gl:
-        # agrega os pontos em hexágonos e usa altura/cor para densidade.
-        layers.append(
-            pdk.Layer(
-                "HexagonLayer",
-                df_filtrado,
-                get_position=["longitude", "latitude"],
-                radius=150,
-                elevation_scale=15,
-                elevation_range=[0, 1500],
-                extruded=True,
-                coverage=1,
-                pickable=True,
-            )
+        # agrega os pontos em hexágonos e usa altura/cor para densidade
+        # (quantidade de imóveis) ou para o valor médio, conforme escolhido
+        # no filtro. Paleta em tons de teal, igual ao mapa de Pontos.
+        cor_range_teal = [
+            [8, 48, 51],
+            [10, 80, 85],
+            [0, 130, 132],
+            [0, 170, 172],
+            [0, 206, 209],
+            [140, 240, 240],
+        ]
+
+        hexagon_kwargs = dict(
+            get_position=["longitude", "latitude"],
+            radius=150,
+            elevation_scale=escala_altura_hexbin,
+            extruded=True,
+            coverage=1,
+            pickable=True,
+            color_range=cor_range_teal,
         )
-        tooltip = {"html": "Imóveis nesta região: {elevationValue}"}
+
+        if metrica_hexbin == "Valor médio":
+            layers.append(
+                pdk.Layer(
+                    "HexagonLayer",
+                    df_filtrado,
+                    get_elevation_weight="valor_tooltip",
+                    elevation_aggregation="MEAN",
+                    get_color_weight="valor_tooltip",
+                    color_aggregation="MEAN",
+                    elevation_range=[0, 600],
+                    **hexagon_kwargs,
+                )
+            )
+            tooltip = {"html": "Valor médio na região: R$ {colorValue}"}
+        else:
+            layers.append(
+                pdk.Layer(
+                    "HexagonLayer",
+                    df_filtrado,
+                    elevation_range=[0, 1000],
+                    **hexagon_kwargs,
+                )
+            )
+            tooltip = {"html": "Imóveis nesta região: {elevationValue}"}
 
     elif tipo_mapa == "Calor":
         layers.append(
