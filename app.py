@@ -376,7 +376,7 @@ with col_map:
         # deck.gl, que se mostrou pouco confiável nesse ambiente). Isso
         # garante o MESMO visual de "barra" tanto pra quantidade quanto
         # pro valor médio.
-        H3_RESOLUCAO = 8  # hexágonos maiores/mais visíveis que antes
+        H3_RESOLUCAO = 12  # hexágonos maiores/mais visíveis que antes
 
         dados_hex = df_filtrado[["latitude", "longitude", "valor_tooltip"]].dropna().copy()
         dados_hex["hex"] = [
@@ -414,7 +414,7 @@ with col_map:
                 get_hexagon="hex",
                 get_fill_color="fill_color",
                 get_elevation="elevation",
-                elevation_scale=1,
+                elevation_scale=3,
                 extruded=True,
                 pickable=True,
             )
