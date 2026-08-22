@@ -434,41 +434,61 @@ with col_map:
             tooltip = {"html": "<b>{NOME}</b><br/>Valor médio: {media_fmt}"}
 
     elif tipo_mapa == "Edifícios 3D (OSM)":
-        # Contornos de prédios/casas do OpenStreetMap, extrudados por altura
-        # estimada (tag 'height' quando existe; senão, andares x 3m; senão,
-        # uma altura padrão). Sem Blender — é a mesma técnica usada nos
-        # showcases oficiais do deck.gl.
-        @st.cache_data(show_spinner="Baixando contornos de edifícios do OpenStreetMap (só na primeira vez)...")
-        def carregar_predios_osm(_gdf_bairros_bounds):
+        # Contornos de prédios/casas extrudados por altura estimada (tag
+        # 'height' quando existe; senão, andares x 3m; senão, um padrão).
+        # Sem Blender — mesma técnica dos showcases oficiais do deck.gl.
+        #
+        # Lê primeiro de um arquivo local (data/edificios_maringa.geojson),
+        # gerado uma vez com o script baixar_predios.py. Isso evita depender
+        # de uma chamada ao vivo pro Overpass API dentro do servidor
+        # hospedado — que se mostrou instável/bloqueada nesse ambiente.
+        EDIFICIOS_LOCAL_PATH = Path("data/edificios_maringa.geojson")
+
+        def estimar_altura(row):
+            altura_tag = row.get("height")
+            if pd.notna(altura_tag):
+                try:
+                    return float(str(altura_tag).lower().replace("m", "").strip())
+                except ValueError:
+                    pass
+            andares = row.get("building:levels")
+            if pd.notna(andares):
+                try:
+                    return float(andares) * 3.0
+                except ValueError:
+                    pass
+            return 9.0  # padrão: ~3 andares, quando não há dado na base
+
+        @st.cache_data(show_spinner="Carregando edifícios...")
+        def carregar_predios_local(path_str):
+            gdf = gpd.read_file(path_str)
+            if "altura" not in gdf.columns:
+                gdf["altura"] = gdf.apply(estimar_altura, axis=1)
+            return gdf[["geometry", "altura"]].reset_index(drop=True)
+
+        @st.cache_data(show_spinner="Buscando edifícios no OpenStreetMap (só na primeira vez)...")
+        def carregar_predios_osm_ao_vivo(_gdf_bairros_bounds):
             minx, miny, maxx, maxy = _gdf_bairros_bounds
             area = box(minx, miny, maxx, maxy)
             gdf_predios = ox.features_from_polygon(area, tags={"building": True})
             gdf_predios = gdf_predios[gdf_predios.geometry.type.isin(["Polygon", "MultiPolygon"])].copy()
-
-            def estimar_altura(row):
-                altura_tag = row.get("height")
-                if pd.notna(altura_tag):
-                    try:
-                        return float(str(altura_tag).lower().replace("m", "").strip())
-                    except ValueError:
-                        pass
-                andares = row.get("building:levels")
-                if pd.notna(andares):
-                    try:
-                        return float(andares) * 3.0
-                    except ValueError:
-                        pass
-                return 9.0  # padrão: ~3 andares, quando não há dado na base
-
             gdf_predios["altura"] = gdf_predios.apply(estimar_altura, axis=1)
             return gdf_predios[["geometry", "altura"]].reset_index(drop=True)
 
         try:
-            bounds = tuple(gdf_bairros.total_bounds)
-            gdf_predios = carregar_predios_osm(bounds)
+            if EDIFICIOS_LOCAL_PATH.exists():
+                gdf_predios = carregar_predios_local(str(EDIFICIOS_LOCAL_PATH))
+            else:
+                st.caption(
+                    "⚠️ Arquivo local de edifícios não encontrado — tentando buscar ao vivo no "
+                    "OpenStreetMap (pode falhar ou demorar). Veja como gerar o arquivo local "
+                    "com o script baixar_predios.py."
+                )
+                bounds = tuple(gdf_bairros.total_bounds)
+                gdf_predios = carregar_predios_osm_ao_vivo(bounds)
 
             if gdf_predios.empty:
-                st.info("Nenhum contorno de edifício encontrado no OpenStreetMap para esta área.")
+                st.info("Nenhum contorno de edifício encontrado para esta área.")
             else:
                 vmin_h, vmax_h = gdf_predios["altura"].min(), gdf_predios["altura"].max()
                 gdf_predios["fill_color"] = gdf_predios["altura"].apply(
@@ -701,8 +721,18 @@ else:
                 .card-previsao {
                     background-color: #1a1a1a;
                     border-radius: 8px;
-                    padding: 0.8rem 1rem;
+                    padding: 0.7rem 0.9rem;
                     margin-top: 1rem;
+                    font-size: 12.5px;
+                }
+                .card-previsao b { font-size: 13px; }
+                .card-previsao ul {
+                    padding-left: 1rem;
+                    margin: 0.3rem 0 0.6rem 0;
+                }
+                .card-previsao li {
+                    white-space: nowrap;
+                    margin-bottom: 0.15rem;
                 }
                 </style>
                 """,
@@ -711,10 +741,10 @@ else:
             previsao_html = "<div class='card-previsao'>"
             previsao_html += "<b>Previsão IPTU</b><ul>"
             for _, row in prev_iptu.iterrows():
-                previsao_html += f"<li>{int(row['ano'])}: R$ {row['IPTU_prev']:,.2f}</li>"
+                previsao_html += f"<li>{int(row['ano'])}: R$ {row['IPTU_prev']:,.0f}</li>"
             previsao_html += "</ul><b>Previsão ITBI</b><ul>"
             for _, row in prev_itbi.iterrows():
-                previsao_html += f"<li>{int(row['ano'])}: R$ {row['ITBI_prev']:,.2f}</li>"
+                previsao_html += f"<li>{int(row['ano'])}: R$ {row['ITBI_prev']:,.0f}</li>"
             previsao_html += "</ul></div>"
             st.markdown(previsao_html, unsafe_allow_html=True)
 
