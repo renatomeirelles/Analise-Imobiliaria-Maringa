@@ -177,8 +177,8 @@ if not data_ok:
 # =========================
 # Paleta e faixas para o mapa coroplético
 # =========================
-cores_hex = ['#f7fbff', '#deebf7', '#c6dbef', '#9ecae1', '#6baed6',
-             '#4292c6', '#2171b5', '#08519c', '#08306b']
+cores_hex = ['#eff8ff', '#a9d3f5', '#5ba3e0', '#2477c2', '#0d54a0',
+             '#0a3d7a', '#072a56', '#041a38', '#00060f']
 
 def hex_para_rgba(hex_color, alpha=180):
     hex_color = hex_color.lstrip("#")
@@ -376,7 +376,7 @@ with col_map:
         # deck.gl, que se mostrou pouco confiável nesse ambiente). Isso
         # garante o MESMO visual de "barra" tanto pra quantidade quanto
         # pro valor médio.
-        H3_RESOLUCAO = 9  # ~150-200m de lado, tamanho parecido com o hexbin anterior
+        H3_RESOLUCAO = 8  # hexágonos maiores/mais visíveis que antes
 
         dados_hex = df_filtrado[["latitude", "longitude", "valor_tooltip"]].dropna().copy()
         dados_hex["hex"] = [
@@ -394,9 +394,9 @@ with col_map:
         vmax_hex = agg_hex[coluna_metrica].max()
 
         if pd.notna(vmax_hex) and vmax_hex > vmin_hex:
-            agg_hex["elevation"] = (agg_hex[coluna_metrica] - vmin_hex) / (vmax_hex - vmin_hex) * 1200 + 30
+            agg_hex["elevation"] = (agg_hex[coluna_metrica] - vmin_hex) / (vmax_hex - vmin_hex) * 3000 + 80
         else:
-            agg_hex["elevation"] = 200
+            agg_hex["elevation"] = 400
 
         agg_hex["fill_color"] = agg_hex[coluna_metrica].apply(
             lambda v: valor_para_cor_teal(v, vmin_hex, vmax_hex)
