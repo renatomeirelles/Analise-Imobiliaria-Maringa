@@ -3,6 +3,7 @@ pydeck
 plotly
 statsmodels
 osmnx
+h3
 pandas
 numpy
 geopandas

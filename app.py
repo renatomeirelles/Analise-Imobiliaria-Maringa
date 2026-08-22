@@ -4,9 +4,10 @@
 import json
 import warnings
 
-import pandas as pd
 import geopandas as gpd
+import h3
 import osmnx as ox
+import pandas as pd
 import plotly.express as px
 import pydeck as pdk
 import streamlit as st
@@ -176,8 +177,8 @@ if not data_ok:
 # =========================
 # Paleta e faixas para o mapa coroplético
 # =========================
-cores_hex = ['#FF0000', '#FFA500', '#FFFF00', '#00FF00', '#00CED1',
-             '#0000FF', '#8A2BE2', '#FF69B4', '#A52A2A']
+cores_hex = ['#f7fbff', '#deebf7', '#c6dbef', '#9ecae1', '#6baed6',
+             '#4292c6', '#2171b5', '#08519c', '#08306b']
 
 def hex_para_rgba(hex_color, alpha=180):
     hex_color = hex_color.lstrip("#")
@@ -371,67 +372,54 @@ with col_map:
         tooltip = {"html": "{Tipo} — R$ {valor_tooltip}"}
 
     elif tipo_mapa == "Densidade 3D (hexbin)":
-        if metrica_hexbin == "Quantidade de imóveis":
-            layers.append(
-                pdk.Layer(
-                    "HexagonLayer",
-                    df_filtrado,
-                    get_position=["longitude", "latitude"],
-                    radius=150,
-                    elevation_scale=3,
-                    elevation_range=[0, 1000],
-                    extruded=True,
-                    coverage=1,
-                    pickable=True,
-                    color_range=cor_range_teal,
-                )
-            )
-            tooltip = {"html": "Imóveis nesta região: {elevationValue}"}
+        # Agregação própria em células H3 (em vez da agregação nativa do
+        # deck.gl, que se mostrou pouco confiável nesse ambiente). Isso
+        # garante o MESMO visual de "barra" tanto pra quantidade quanto
+        # pro valor médio.
+        H3_RESOLUCAO = 9  # ~150-200m de lado, tamanho parecido com o hexbin anterior
+
+        dados_hex = df_filtrado[["latitude", "longitude", "valor_tooltip"]].dropna().copy()
+        dados_hex["hex"] = [
+            h3.latlng_to_cell(lat, lon, H3_RESOLUCAO)
+            for lat, lon in zip(dados_hex["latitude"], dados_hex["longitude"])
+        ]
+
+        agg_hex = dados_hex.groupby("hex").agg(
+            qtd=("valor_tooltip", "size"),
+            media=("valor_tooltip", "mean"),
+        ).reset_index()
+
+        coluna_metrica = "qtd" if metrica_hexbin == "Quantidade de imóveis" else "media"
+        vmin_hex = agg_hex[coluna_metrica].min()
+        vmax_hex = agg_hex[coluna_metrica].max()
+
+        if pd.notna(vmax_hex) and vmax_hex > vmin_hex:
+            agg_hex["elevation"] = (agg_hex[coluna_metrica] - vmin_hex) / (vmax_hex - vmin_hex) * 1200 + 30
         else:
-            gdf_imoveis = gpd.GeoDataFrame(
-                df_filtrado,
-                geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
-                crs="EPSG:4326",
-            )
-            gdf_join = gpd.sjoin(
-                gdf_imoveis, gdf_bairros[["geometry", "NOME"]], how="left", predicate="within"
-            )
-            media_bairro = gdf_join.groupby("NOME")[coluna_valor].mean().reset_index()
-            media_bairro.columns = ["Bairro", "media"]
+            agg_hex["elevation"] = 200
 
-            gdf_plot3d = gdf_bairros.merge(media_bairro, left_on="NOME", right_on="Bairro", how="left")
+        agg_hex["fill_color"] = agg_hex[coluna_metrica].apply(
+            lambda v: valor_para_cor_teal(v, vmin_hex, vmax_hex)
+        )
 
-            vmin = gdf_plot3d["media"].min()
-            vmax = gdf_plot3d["media"].max()
+        if metrica_hexbin == "Quantidade de imóveis":
+            agg_hex["label"] = agg_hex["qtd"].apply(lambda v: f"{int(v)} imóveis")
+        else:
+            agg_hex["label"] = agg_hex["media"].apply(lambda v: f"R$ {v:,.2f}")
 
-            gdf_plot3d["fill_color"] = gdf_plot3d["media"].apply(lambda v: valor_para_cor_teal(v, vmin, vmax))
-            gdf_plot3d["media_fmt"] = gdf_plot3d["media"].apply(
-                lambda v: f"R$ {v:,.2f}" if pd.notna(v) else "sem dados"
+        layers.append(
+            pdk.Layer(
+                "H3HexagonLayer",
+                agg_hex,
+                get_hexagon="hex",
+                get_fill_color="fill_color",
+                get_elevation="elevation",
+                elevation_scale=1,
+                extruded=True,
+                pickable=True,
             )
-            if pd.notna(vmax) and vmax > vmin:
-                gdf_plot3d["elevacao"] = ((gdf_plot3d["media"] - vmin) / (vmax - vmin) * 1800).fillna(0)
-            else:
-                gdf_plot3d["elevacao"] = 0
-
-            geojson_3d = json.loads(
-                gdf_plot3d[["geometry", "NOME", "media_fmt", "fill_color", "elevacao"]].to_json()
-            )
-
-            layers.append(
-                pdk.Layer(
-                    "GeoJsonLayer",
-                    geojson_3d,
-                    stroked=True,
-                    filled=True,
-                    extruded=True,
-                    wireframe=True,
-                    get_elevation="properties.elevacao",
-                    get_fill_color="properties.fill_color",
-                    get_line_color=[58, 58, 58],
-                    pickable=True,
-                )
-            )
-            tooltip = {"html": "<b>{NOME}</b><br/>Valor médio: {media_fmt}"}
+        )
+        tooltip = {"html": "{label}"}
 
     elif tipo_mapa == "Edifícios 3D (OSM)":
         # Contornos de prédios/casas extrudados por altura estimada (tag
