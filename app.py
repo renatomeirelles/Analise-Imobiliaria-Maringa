@@ -1030,7 +1030,6 @@ else:
             yaxis=dict(showgrid=True, gridcolor="#333333", gridwidth=1),
             plot_bgcolor="#0e0e0e",
         )
-        # Destaca a zona de previsão com um fundo levemente diferente (cinza).
         inicio_previsao = min(ultimo_ano_iptu, ultimo_ano_itbi)
         fim_previsao = int(df_plot_serie["ano"].max())
         fig_temp.add_vrect(
@@ -1074,6 +1073,65 @@ else:
                 previsao_html += f"<li>{int(row['ano'])}: R$ {row['ITBI_prev']:,.0f}</li>"
             previsao_html += "</ul></div>"
             st.markdown(previsao_html, unsafe_allow_html=True)
+
+        # =========================
+        # NOVO: Índice de Descolamento IPTU x ITBI
+        # =========================
+        st.markdown("---")
+        st.markdown("### 🧭 Índice de Descolamento IPTU x ITBI")
+        st.caption(
+            "Compara o ritmo de crescimento da arrecadação de IPTU (base administrativa, "
+            "a Planta Genérica de Valores) com o do ITBI (base de mercado, valor real de "
+            "transação). Quando o ITBI cresce mais rápido que o IPTU, é sinal de que a base "
+            "tributária está ficando defasada em relação ao mercado."
+        )
+
+        df_razao = df_serie.dropna(subset=["IPTU", "ITBI"]).copy()
+        df_razao = df_razao[df_razao["IPTU"] > 0]
+        df_razao["razao_itbi_iptu"] = df_razao["ITBI"] / df_razao["IPTU"]
+
+        fig_razao = px.line(
+            df_razao, x="ano", y="razao_itbi_iptu",
+            title="Razão ITBI / IPTU ao longo do tempo",
+            markers=True,
+        )
+        fig_razao.update_layout(
+            template="plotly_dark",
+            height=350,
+            xaxis=dict(showgrid=True, gridcolor="#333333", gridwidth=1),
+            yaxis=dict(showgrid=True, gridcolor="#333333", gridwidth=1, title="ITBI / IPTU"),
+            plot_bgcolor="#0e0e0e",
+        )
+
+        # --- Taxa de crescimento anualizada (CAGR) de cada tributo, no período disponível ---
+        def cagr(df, coluna):
+            serie = df[["ano", coluna]].dropna(subset=[coluna]).sort_values("ano")
+            if len(serie) < 2:
+                return None
+            ano_ini, ano_fim = serie["ano"].iloc[0], serie["ano"].iloc[-1]
+            val_ini, val_fim = serie[coluna].iloc[0], serie[coluna].iloc[-1]
+            n_anos = ano_fim - ano_ini
+            if n_anos <= 0 or val_ini <= 0:
+                return None
+            return (val_fim / val_ini) ** (1 / n_anos) - 1
+
+        cagr_iptu = cagr(df_serie, "IPTU")
+        cagr_itbi = cagr(df_serie, "ITBI")
+
+        col_razao, col_cagr = st.columns([7, 3], gap="medium")
+        with col_razao:
+            st.plotly_chart(fig_razao, use_container_width=True)
+        with col_cagr:
+            st.metric("Crescimento anual médio — IPTU", f"{cagr_iptu*100:.1f}%" if cagr_iptu is not None else "—")
+            st.metric("Crescimento anual médio — ITBI", f"{cagr_itbi*100:.1f}%" if cagr_itbi is not None else "—")
+            if cagr_iptu is not None and cagr_itbi is not None:
+                diferenca = (cagr_itbi - cagr_iptu) * 100
+                if diferenca > 0.5:
+                    st.warning(f"ITBI cresce {diferenca:.1f} p.p./ano mais rápido que o IPTU — indício de defasagem crescente.")
+                elif diferenca < -0.5:
+                    st.info(f"IPTU cresce {-diferenca:.1f} p.p./ano mais rápido que o ITBI — a base tributária está acompanhando ou superando o mercado.")
+                else:
+                    st.success("IPTU e ITBI crescem em ritmo semelhante — sem sinal de descolamento agregado.")
 
     except Exception as e:
         st.error(f"Não foi possível calcular a previsão IPTU/ITBI: {e}")
