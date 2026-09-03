@@ -3,6 +3,8 @@
 # =========================
 import json
 import warnings
+import re
+import unicodedata
 
 import geopandas as gpd
 import h3
@@ -206,6 +208,282 @@ if not gdf_quadras.empty:
 if not gdf_lotes.empty:
     gdf_lotes["geometry"] = gdf_lotes.geometry.simplify(0.00005, preserve_topology=True)
 
+# ============================================
+# Índice de Desalinhamento Alíquota x Mercado
+# ============================================
+import re
+import unicodedata
+
+@st.cache_data(show_spinner="Calculando índice de desalinhamento alíquota x mercado...")
+def calcular_indice_desalinhamento(_df, _gdf_bairros):
+    from rapidfuzz import process, fuzz
+
+    # --- Anexo VIII da lei — Relação 1 (0,6%) ---
+    RAW_RELACAO1 = """
+28 Aclimação, Jardim
+30 Bandeiras, Parque das
+20 Beth, Jardim
+43 Califórnia, Jardim
+19 Campo Belo, Jardim
+25 Cidade Alta, Conjunto Residencial
+46 Chácaras do Jardim Alvorada
+17 Chácaras da Vila Emília
+37 Dourado, Jardim
+17 Emília, Vila
+43 Estilos, Chácaras
+43 Everest, Jardim
+19 Guairacá, Jardim
+25 Honorato Vecchi, Residencial Pioneiro
+44 Inocente Vilanova Jr., Conjunto Residencial
+17 Itapuã, Jardim
+25 Ipanema, Jardim
+37 Lea Leal, Conjunto Habitacional
+36 Liberdade parte IV, Loteamento
+31 Licce, Jardim
+48 Laranjeiras, Parque
+21 Los Angeles, Jardim
+21 Lucianópolis, Jardim
+21 Mandacaru, Jardim
+21 Maravilha, Jardim
+19 Moradias Atenas
+19 Moradias Atenas Parte 2
+37 Morangueira, Chácaras
+21 Monte Carlo, Jardim
+36 Nova América, Jardim
+17 Novo Horizonte parte V, Jardim
+Oásis, Jardim
+25 Odwaldo Bueno Netto, Residencial Pioneiro
+30 Palmeiras, Parque das
+36 Parigot de Souza, Conjunto Residencial Governador
+37 Patrícia, Parque Residencial
+48 Planville, Conjunto Residencial
+30 Quebec, Parque Residencial
+36 Regente, Parque Residencial
+21 Santa Isabel, Vila
+44 Santa Rosa, Jardim
+25 São Paulo, Jardim
+21 Seminário, Jardim
+19 Três Lagoas, Jardim
+48 Tropical, Jardim
+37 Tupinambá, Jardim
+21 Vardelina, Vila
+44 Veredas, Jardim
+44 Veredas II, Jardim
+37 Virgínia, Vila
+30 Vitória, Jardim
+"""
+
+    # --- Anexo VIII da lei — Relação 2 (0,3%) ---
+    RAW_RELACAO2 = """
+39 Aeroporto, Chácaras
+38 Aeroporto parte I, Parque Residencial
+38 Aeroporto parte II, Parque Residencial
+38 Aeroporto parte III, Parque Residencial
+33 Albino Meneguetti, Conjunto Habitacional
+46 Alvorada parte III, Jardim
+46 Andrade, Jardim
+19 Andréa, Parque Residencial
+20 Ângelo Planas, Conjunto Residencial
+22 Atami, Jardim
+36 Atlanta, Jardim
+43 Aurora, Jardim
+33 Alto Alegre
+31 Avenida, Parque
+37 Batel, Loteamento
+53 Bela Vista, Loteamento Fechado
+53 Bela Vista II, Loteamento Fechado
+33 Belo Horizonte, Jardim
+38 Bertioga, Jardim
+37 Branca de Jesus Camargo Vieira, Conjunto Residencial
+37 Campos Elíseos, Jardim
+39 Catedral, Jardim
+53 Centenário, Condomínio Chácaras
+38 Céu Azul, Conjunto Habitacional
+39 Cidade Alta, Conjunto
+37 Colina Verde, Jardim
+49 Colombo
+Continental, Jardim
+30 Copacabana II, Jardim
+30 Copacabana, Residencial
+38 Del Prata, Conjunto Habitacional
+43 Do Carmo, Jardim
+33 Dona Angelina, Conjunto Residencial
+46 Ebenezer parte II, Loteamento
+46 Ebenezer, Loteamento
+33 Escalada, Residencial
+29 Esperança parte III, Vila
+38 Europa, Conjunto Habitacional
+34 Floriano, Distrito de
+33 Golden I, Jardim
+33 Golden II, Jardim
+34 Gonçalo Vieira dos Santos, Conjunto Habitacional
+37 Grajaú
+31 Grevíleas parte I, Parque
+31 Grevíleas parte III, Parque
+31 Grevíleas parte II, Parque
+36 Guaiapó, Conjunto Residencial
+30 Herman Moraes de Barros, Conjunto Habitacional
+43 Hortência parte I, Parque
+19 Hortência parte II, Parque
+36 Ibirapuera, Parque Residencial
+33 Iguatemi, Conjunto Habitacional
+33 Iguatemi, Distrito de
+33 Iguatemi, Residencial
+43 Indaiá, Jardim
+33 Índio, Jardim
+47 Industrial, Jardim
+25 Ipanema, Jardim
+47 Itaipu, Parque
+36 Itatiaia, Conjunto Habitacional
+37 João-de-Barro Champagnat, Habitacional
+39 João-de-Barro Cidade Alta I, Conjunto Habitacional
+39 João-de-Barro Cidade Alta II, Conjunto Habitacional
+39 João-de-Barro Cidade Canção, Conjunto Residencial
+25 João-de-Barro I, Conjunto Residencial
+34 João-de-Barro II, Conjunto Habitacional
+37 João-de-Barro Itaparica, Conjunto Habitacional
+38 João-de-Barro Porto Seguro I, Conjunto Residencial
+38 João-de-Barro Porto Seguro II, Conjunto Residencial
+19 João-de-Barro Thais, Conjunto Residencial
+33 João Paulo I, Conjunto Residencial
+34 José Israel Factori, Conjunto Residencial
+34 José Pires de Oliveira, Pioneiro
+31 Kakogawa, Jardim
+19 Kosmos, Jardim
+48 Laranjeiras, Parque das
+39 Madrid
+33 Marajoara, Jardim
+43 Montreal, Jardim
+34 Natalin Feltrin, Conjunto Habitacional
+43 Ney Braga, Conjunto Residencial Governador
+46 Novo Alvorada
+21 Núcleo Social Papa João XXIII
+19 Olímpico, Jardim
+19 Ouro Cola, Jardim
+25 Paraíso, Jardim
+43 Pássaros, Jardim dos
+37 Paulino C. Filho, Conjunto Residencial
+36 Paulista, Jardim
+36 Paulista II, Jardim
+36 Paulista III, Jardim
+37 Piatã, Loteamento, Jardim
+Portal das Torres
+33 Primavera, Jardim
+39 Pro-Lar, Jardim
+48 Rebouças, Jardim
+56 Recanto dos Guerreiros
+16 Recanto Kakogawa
+36 Requião I, Conjunto Habitacional
+46 Rodolpho Bernardi, Conjunto Residencial
+38 Sanenge III, Conjunto Habitacional
+43 Sanenge, Conjunto Habitacional
+46 Santa Clara, Jardim
+43 Santa Cruz, Jardim
+25 Santa Felicidade, Núcleo Habitacional
+53 Santa Maria, Loteamento Fechado
+53 Santa Marina, Loteamento Fechado
+33 Santa Terezinha, Conjunto
+49 São Domingos, Jardim
+46 Sumaré, Loteamento
+37 São Francisco, Jardim
+21 São Jorge, Jardim
+43 São Miguel, Jardim
+43 São Miguel 2.º Parte, Jardim
+33 São Pedro, Jardim
+39 São Silvestre, Jardim
+33 Serena, Vila
+39 Sol Nascente, Conjunto Habitacional
+25 Tarumã, Loteamento Parque
+25 Tarumã, Residencial
+37 Tuiuti, Parque Residencial
+20 Universo, Jardim
+21 Vardelina, Vila
+33 Villa Bella, Residencial
+53 Zona de Urbanização Específica
+"""
+
+    def extrai_nomes(raw_text):
+        nomes = []
+        for linha in raw_text.strip().split("\n"):
+            linha = linha.strip()
+            if not linha or linha.startswith("("):
+                continue
+            nomes.append(re.sub(r"^\d+\s+", "", linha))
+        return nomes
+
+    aliquota_por_nome_lei = {}
+    for nome in extrai_nomes(RAW_RELACAO1):
+        aliquota_por_nome_lei[nome] = 0.006
+    for nome in extrai_nomes(RAW_RELACAO2):
+        aliquota_por_nome_lei[nome] = 0.003
+
+    CLASSIFICADORES = [
+        "conjunto residencial governador", "parque residencial",
+        "residencial pioneiro", "loteamento fechado", "conjunto residencial",
+        "conjunto habitacional", "nucleo habitacional", "distrito de",
+        "zona de urbanizacao especifica", "parque das", "loteamento",
+        "residencial", "conjunto", "habitacional", "chacaras",
+        "gleba", "parque", "jardim", "vila", "nucleo",
+    ]
+
+    def normaliza(txt):
+        txt = str(txt).lower()
+        txt = ''.join(c for c in unicodedata.normalize('NFD', txt) if unicodedata.category(c) != 'Mn')
+        txt = re.sub(r"[^\w\s]", " ", txt)
+        return re.sub(r"\s+", " ", txt).strip()
+
+    def extrai_core(txt):
+        t = normaliza(txt)
+        for c in sorted(CLASSIFICADORES, key=len, reverse=True):
+            t = re.sub(rf"\b{re.escape(c)}\b", "", t)
+        t = re.sub(r"\s+", " ", t).strip()
+        return t if t else normaliza(txt)
+
+    nomes_shapefile_norm = sorted(_gdf_bairros["NOME"].dropna().apply(normaliza).unique().tolist())
+    core_shapefile = {nome: extrai_core(nome) for nome in nomes_shapefile_norm}
+
+    resultados = []
+    for nome_lei, aliquota in aliquota_por_nome_lei.items():
+        core_lei = extrai_core(nome_lei)
+        match, score, idx = process.extractOne(
+            core_lei, list(core_shapefile.values()), scorer=fuzz.partial_ratio
+        )
+        nome_correspondente = list(core_shapefile.keys())[idx]
+        resultados.append({"nome_norm": nome_correspondente, "aliquota": aliquota, "score": score})
+
+    df_match = pd.DataFrame(resultados)
+    LIMIAR = 85
+    aliquota_confirmada = df_match[df_match["score"] >= LIMIAR][["nome_norm", "aliquota"]]
+    aliquota_por_bairro_norm = aliquota_confirmada.groupby("nome_norm")["aliquota"].min().to_dict()
+
+    # --- Preço médio/m² por bairro (usando NOME normalizado) ---
+    gdf_imoveis_idx = gpd.GeoDataFrame(
+        _df, geometry=gpd.points_from_xy(_df["longitude"], _df["latitude"]), crs="EPSG:4326"
+    )
+    gdf_bairros_norm = _gdf_bairros[["geometry", "NOME"]].copy()
+    gdf_bairros_norm["NOME_norm"] = gdf_bairros_norm["NOME"].apply(normaliza)
+
+    gdf_join = gpd.sjoin(gdf_imoveis_idx, gdf_bairros_norm, how="left", predicate="within")
+    col_nome = "NOME_norm" if "NOME_norm" in gdf_join.columns else "NOME_norm_right"
+
+    resumo = gdf_join.groupby(col_nome).agg(
+        preco_m2_medio=("valor_m2", "mean"),
+        n_imoveis=(col_nome, "size"),
+    ).reset_index().rename(columns={col_nome: "NOME_norm"})
+
+    resumo = resumo[resumo["n_imoveis"] >= 5].copy()
+    resumo["classificado_pela_lei"] = resumo["NOME_norm"].isin(aliquota_por_bairro_norm.keys())
+    resumo["aliquota"] = resumo["NOME_norm"].map(aliquota_por_bairro_norm).fillna(0.01)
+    resumo["percentil_preco"] = resumo["preco_m2_medio"].rank(pct=True) * 100
+
+    centro_esperado = {0.003: 16.5, 0.006: 50.0, 0.01: 83.5}
+    resumo["centro_esperado"] = resumo["aliquota"].map(centro_esperado)
+    resumo["indice_desalinhamento"] = (resumo["percentil_preco"] - resumo["centro_esperado"]).round(1)
+
+    return resumo.set_index("NOME_norm").to_dict(orient="index")
+
+indice_desalinhamento_por_bairro = calcular_indice_desalinhamento(df, gdf_bairros)
+
 # =========================
 # Paleta e faixas para o mapa coroplético
 # =========================
@@ -362,9 +640,31 @@ with col_map:
             lambda v: f"{v:.2f}%" if pd.notna(v) else "sem dados"
         )
 
+        # --- NOVO: Alíquota e Índice de Desalinhamento no tooltip ---
+        def normaliza_local(txt):
+            txt = str(txt).lower()
+            txt = ''.join(c for c in unicodedata.normalize('NFD', txt) if unicodedata.category(c) != 'Mn')
+            txt = re.sub(r"[^\w\s]", " ", txt)
+            return re.sub(r"\s+", " ", txt).strip()
+
+        gdf_plot["_nome_norm"] = gdf_plot["NOME"].apply(normaliza_local)
+
+        def busca_indice(nome_norm):
+            info = indice_desalinhamento_por_bairro.get(nome_norm)
+            if info is None:
+                return "sem classificação", "—"
+            aliquota_fmt = f"{info['aliquota']*100:.1f}%"
+            indice_fmt = f"{info['indice_desalinhamento']:+.1f}"
+            return aliquota_fmt, indice_fmt
+
+        gdf_plot[["aliquota_fmt", "indice_desalinhamento_fmt"]] = gdf_plot["_nome_norm"].apply(
+            lambda n: pd.Series(busca_indice(n))
+        )
+
         geojson = json.loads(
             gdf_plot[[
-                "geometry", "NOME", "media_fmt", "minimo_fmt", "maximo_fmt", "variacao_fmt", "fill_color"
+                "geometry", "NOME", "media_fmt", "minimo_fmt", "maximo_fmt", "variacao_fmt",
+                "aliquota_fmt", "indice_desalinhamento_fmt", "fill_color"
             ]].to_json()
         )
 
@@ -386,7 +686,10 @@ with col_map:
                 "Média: {media_fmt}<br/>"
                 "Mínimo: {minimo_fmt}<br/>"
                 "Máximo: {maximo_fmt}<br/>"
-                "Variação vs. município: {variacao_fmt}"
+                "Variação vs. município: {variacao_fmt}<br/>"
+                "<hr style='margin:4px 0;'/>"
+                "Alíquota IPTU: {aliquota_fmt}<br/>"
+                "Índice de desalinhamento: {indice_desalinhamento_fmt}"
             )
         }
 
@@ -405,36 +708,29 @@ with col_map:
 
     elif tipo_mapa == "Densidade 3D (hexbin)":
         H3_RESOLUCAO = 9
-
         dados_hex = df_filtrado[["latitude", "longitude", "valor_tooltip"]].dropna().copy()
         dados_hex["hex"] = [
             h3.latlng_to_cell(lat, lon, H3_RESOLUCAO)
             for lat, lon in zip(dados_hex["latitude"], dados_hex["longitude"])
         ]
-
         agg_hex = dados_hex.groupby("hex").agg(
             qtd=("valor_tooltip", "size"),
             media=("valor_tooltip", "mean"),
         ).reset_index()
-
         coluna_metrica = "qtd" if metrica_hexbin == "Quantidade de imóveis" else "media"
         vmin_hex = agg_hex[coluna_metrica].min()
         vmax_hex = agg_hex[coluna_metrica].max()
-
         if pd.notna(vmax_hex) and vmax_hex > vmin_hex:
             agg_hex["elevation"] = (agg_hex[coluna_metrica] - vmin_hex) / (vmax_hex - vmin_hex) * 3000 + 80
         else:
             agg_hex["elevation"] = 400
-
         agg_hex["fill_color"] = agg_hex[coluna_metrica].apply(
             lambda v: valor_para_cor_teal(v, vmin_hex, vmax_hex)
         )
-
         if metrica_hexbin == "Quantidade de imóveis":
             agg_hex["label"] = agg_hex["qtd"].apply(lambda v: f"{int(v)} imóveis")
         else:
             agg_hex["label"] = agg_hex["media"].apply(lambda v: f"R$ {v:,.2f}")
-
         layers.append(
             pdk.Layer(
                 "H3HexagonLayer",
@@ -538,39 +834,26 @@ with col_map:
             )
         )
 
-    # --- NOVO: Camadas extras (Maringá, Quadras, Lotes) — somadas por cima ---
-    # do mapa base escolhido acima, independente de qual seja.
     if mostrar_maringa and not gdf_maringa.empty:
         layers.append(
             pdk.Layer(
-                "GeoJsonLayer",
-                json.loads(gdf_maringa.to_json()),
-                stroked=True, filled=False,
-                get_line_color=[255, 255, 255],
-                line_width_min_pixels=2,
+                "GeoJsonLayer", json.loads(gdf_maringa.to_json()),
+                stroked=True, filled=False, get_line_color=[255, 255, 255], line_width_min_pixels=2,
             )
         )
-
     if mostrar_quadras and not gdf_quadras.empty:
         layers.append(
             pdk.Layer(
-                "GeoJsonLayer",
-                json.loads(gdf_quadras.to_json()),
-                stroked=True, filled=False,
-                get_line_color=[255, 165, 0],
-                line_width_min_pixels=1,
+                "GeoJsonLayer", json.loads(gdf_quadras.to_json()),
+                stroked=True, filled=False, get_line_color=[255, 165, 0], line_width_min_pixels=1,
             )
         )
-
     if mostrar_lotes and not gdf_lotes.empty:
         layers.append(
             pdk.Layer(
-                "GeoJsonLayer",
-                json.loads(gdf_lotes.to_json()),
-                stroked=True, filled=True,
-                get_fill_color=[200, 30, 30, 60],
-                get_line_color=[200, 30, 30],
-                line_width_min_pixels=0.5,
+                "GeoJsonLayer", json.loads(gdf_lotes.to_json()),
+                stroked=True, filled=True, get_fill_color=[200, 30, 30, 60],
+                get_line_color=[200, 30, 30], line_width_min_pixels=0.5,
             )
         )
 
