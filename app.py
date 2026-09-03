@@ -120,6 +120,11 @@ with col_filters:
         key="grafico_selectbox"
     )
 
+    st.markdown("### 🗂️ Camadas extras")
+    mostrar_maringa = st.checkbox("Limite de Maringá", value=True, key="chk_maringa")
+    mostrar_quadras = st.checkbox("Quadras", value=False, key="chk_quadras")
+    mostrar_lotes = st.checkbox("Lotes", value=False, key="chk_lotes")
+
 # =========================
 # Funções de carga de dados
 # =========================
@@ -148,11 +153,26 @@ def load_bairros(path: str) -> gpd.GeoDataFrame:
         st.error(f"Erro ao carregar shapefile: {e}")
         return gpd.GeoDataFrame()
 
+@st.cache_data(show_spinner=True)
+def load_shapefile_generico(path: str) -> gpd.GeoDataFrame:
+    try:
+        gdf = gpd.read_file(path)
+        gdf.columns = gdf.columns.str.strip()
+        if gdf.crs is not None and gdf.crs.to_epsg() != 4326:
+            gdf = gdf.to_crs("EPSG:4326")
+        return gdf
+    except Exception as e:
+        st.error(f"Erro ao carregar shapefile: {e}")
+        return gpd.GeoDataFrame()
+
 # =========================
 # Carregar dados com proteção
 # =========================
 df_path = "data/imoveis_georreferenciados_novembro.xlsx"
 shp_path = "data/Bairros.shp"
+maringa_path = "data/Maringa.shp"
+quadras_path = "data/Quadra.shp"
+lotes_path = "data/Lotes.shp"
 
 data_ok = True
 if not Path(df_path).exists():
@@ -175,6 +195,16 @@ except Exception as e:
 if not data_ok:
     st.info("Ajuste os arquivos e recarregue a página.")
     st.stop()
+
+# --- Camadas extras (Maringá, Quadras, Lotes) — não bloqueiam o app se faltar ---
+gdf_maringa = load_shapefile_generico(maringa_path)
+gdf_quadras = load_shapefile_generico(quadras_path)
+gdf_lotes = load_shapefile_generico(lotes_path)
+
+if not gdf_quadras.empty:
+    gdf_quadras["geometry"] = gdf_quadras.geometry.simplify(0.00003, preserve_topology=True)
+if not gdf_lotes.empty:
+    gdf_lotes["geometry"] = gdf_lotes.geometry.simplify(0.00005, preserve_topology=True)
 
 # =========================
 # Paleta e faixas para o mapa coroplético
@@ -374,11 +404,7 @@ with col_map:
         tooltip = {"html": "{Tipo} — R$ {valor_tooltip}"}
 
     elif tipo_mapa == "Densidade 3D (hexbin)":
-        # Agregação própria em células H3 (em vez da agregação nativa do
-        # deck.gl, que se mostrou pouco confiável nesse ambiente). Isso
-        # garante o MESMO visual de "barra" tanto pra quantidade quanto
-        # pro valor médio.
-        H3_RESOLUCAO = 9  # hexágonos maiores/mais visíveis que antes
+        H3_RESOLUCAO = 9
 
         dados_hex = df_filtrado[["latitude", "longitude", "valor_tooltip"]].dropna().copy()
         dados_hex["hex"] = [
@@ -424,14 +450,6 @@ with col_map:
         tooltip = {"html": "{label}"}
 
     elif tipo_mapa == "Edifícios 3D (OSM)":
-        # Contornos de prédios/casas extrudados por altura estimada (tag
-        # 'height' quando existe; senão, andares x 3m; senão, um padrão).
-        # Sem Blender — mesma técnica dos showcases oficiais do deck.gl.
-        #
-        # Lê primeiro de um arquivo local (data/edificios_maringa.geojson),
-        # gerado uma vez com o script baixar_predios.py. Isso evita depender
-        # de uma chamada ao vivo pro Overpass API dentro do servidor
-        # hospedado — que se mostrou instável/bloqueada nesse ambiente.
         EDIFICIOS_LOCAL_PATH = Path("data/edificios_maringa.geojson")
 
         def estimar_altura(row):
@@ -447,7 +465,7 @@ with col_map:
                     return float(andares) * 3.0
                 except ValueError:
                     pass
-            return 9.0  # padrão: ~3 andares, quando não há dado na base
+            return 9.0
 
         @st.cache_data(show_spinner="Carregando edifícios...")
         def carregar_predios_local(path_str):
@@ -517,6 +535,42 @@ with col_map:
                 get_position=["longitude", "latitude"],
                 get_weight="valor_tooltip",
                 radius_pixels=40,
+            )
+        )
+
+    # --- NOVO: Camadas extras (Maringá, Quadras, Lotes) — somadas por cima ---
+    # do mapa base escolhido acima, independente de qual seja.
+    if mostrar_maringa and not gdf_maringa.empty:
+        layers.append(
+            pdk.Layer(
+                "GeoJsonLayer",
+                json.loads(gdf_maringa.to_json()),
+                stroked=True, filled=False,
+                get_line_color=[255, 255, 255],
+                line_width_min_pixels=2,
+            )
+        )
+
+    if mostrar_quadras and not gdf_quadras.empty:
+        layers.append(
+            pdk.Layer(
+                "GeoJsonLayer",
+                json.loads(gdf_quadras.to_json()),
+                stroked=True, filled=False,
+                get_line_color=[255, 165, 0],
+                line_width_min_pixels=1,
+            )
+        )
+
+    if mostrar_lotes and not gdf_lotes.empty:
+        layers.append(
+            pdk.Layer(
+                "GeoJsonLayer",
+                json.loads(gdf_lotes.to_json()),
+                stroked=True, filled=True,
+                get_fill_color=[200, 30, 30, 60],
+                get_line_color=[200, 30, 30],
+                line_width_min_pixels=0.5,
             )
         )
 
