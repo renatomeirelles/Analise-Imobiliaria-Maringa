@@ -1,12 +1,9 @@
-import dash
-from dash import html, dcc
-from dash.dependencies import Input, Output
-import dash_deck
+import streamlit as st
 import pydeck as pdk
 import geopandas as gpd
 from pathlib import Path
 
-app = dash.Dash(__name__)
+st.set_page_config(page_title="GeoReceita", layout="wide")
 
 # ---------------------------------------------------------
 # CAMINHOS DOS DADOS
@@ -22,56 +19,46 @@ CAMINHOS_SHP = {
 }
 
 # ---------------------------------------------------------
-# CARGA E PADRONIZAÇÃO DE CRS (todas as camadas em WGS84 - EPSG:4326)
+# CARGA E PADRONIZAÇÃO DE CRS (cacheada — só recarrega se o arquivo mudar)
 # ---------------------------------------------------------
+@st.cache_data
 def carregar_camadas():
     gdfs = {}
     for nome, caminho in CAMINHOS_SHP.items():
         gdf = gpd.read_file(caminho)
         if gdf.crs is None:
-            raise ValueError(f"Camada '{nome}' não tem CRS definido no .prj — verifique o arquivo.")
+            raise ValueError(f"Camada '{nome}' não tem CRS definido no .prj.")
         gdf = gdf.to_crs("EPSG:4326")
-        gdfs[nome] = gdf
+        gdfs[nome] = gdf.__geo_interface__  # já converte para GeoJSON aqui
     return gdfs
 
-gdfs = carregar_camadas()
+geojsons = carregar_camadas()
 
 # ---------------------------------------------------------
-# CONVERSÃO PARA O FORMATO QUE O PYDECK ESPERA (GeoJSON)
-# ---------------------------------------------------------
-def gdf_para_geojson(gdf):
-    return gdf.__geo_interface__
-
-geojson_maringa = gdf_para_geojson(gdfs["Maringá"])
-geojson_bairros = gdf_para_geojson(gdfs["Bairros"])
-geojson_quadras = gdf_para_geojson(gdfs["Quadras"])
-geojson_lotes   = gdf_para_geojson(gdfs["Lotes"])
-
-# ---------------------------------------------------------
-# DEFINIÇÃO DAS CAMADAS (estilo básico, cor por camada)
+# DEFINIÇÃO DAS CAMADAS
 # ---------------------------------------------------------
 def cria_layer_maringa():
     return pdk.Layer(
-        "GeoJsonLayer", data=geojson_maringa, id="layer-maringa",
+        "GeoJsonLayer", data=geojsons["Maringá"],
         stroked=True, filled=False, get_line_color=[255, 255, 255], line_width_min_pixels=2,
     )
 
 def cria_layer_bairros():
     return pdk.Layer(
-        "GeoJsonLayer", data=geojson_bairros, id="layer-bairros",
+        "GeoJsonLayer", data=geojsons["Bairros"],
         stroked=True, filled=True, get_fill_color=[70, 130, 180, 40],
         get_line_color=[70, 130, 180], line_width_min_pixels=1, pickable=True,
     )
 
 def cria_layer_quadras():
     return pdk.Layer(
-        "GeoJsonLayer", data=geojson_quadras, id="layer-quadras",
+        "GeoJsonLayer", data=geojsons["Quadras"],
         stroked=True, filled=False, get_line_color=[255, 165, 0], line_width_min_pixels=1, pickable=True,
     )
 
 def cria_layer_lotes():
     return pdk.Layer(
-        "GeoJsonLayer", data=geojson_lotes, id="layer-lotes",
+        "GeoJsonLayer", data=geojsons["Lotes"],
         stroked=True, filled=True, get_fill_color=[200, 30, 30, 60],
         get_line_color=[200, 30, 30], line_width_min_pixels=0.5, pickable=True,
     )
@@ -84,60 +71,33 @@ CRIADORES_LAYER = {
 }
 
 # ---------------------------------------------------------
-# VIEW STATE E MONTAGEM DO DECK
+# INTERFACE — TÍTULO E SELETOR DE CAMADAS (barra lateral)
 # ---------------------------------------------------------
+st.title("GeoReceita")
+st.caption("Camadas territoriais de Maringá — Bairros, Quadras e Lotes")
+
+st.sidebar.header("Camadas")
+camadas_selecionadas = []
+for nome in CRIADORES_LAYER:
+    padrao = nome in ["Maringá", "Bairros"]  # ligadas por padrão
+    if st.sidebar.checkbox(nome, value=padrao):
+        camadas_selecionadas.append(nome)
+
+# ---------------------------------------------------------
+# MONTAGEM E EXIBIÇÃO DO MAPA
+# ---------------------------------------------------------
+layers = [CRIADORES_LAYER[nome]() for nome in camadas_selecionadas]
+
 view_state = pdk.ViewState(latitude=-23.42, longitude=-51.94, zoom=11, pitch=0)
 
-def monta_deck(camadas_ativas):
-    layers = [CRIADORES_LAYER[nome]() for nome in camadas_ativas]
-    return pdk.Deck(
-        layers=layers,
-        initial_view_state=view_state,
-        tooltip={
-            "html": "<b>{NOME}</b>{QUADRA_GEO}{LOTE}",
-            "style": {"backgroundColor": "white", "color": "black"},
-        },
-        map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
-    )
-
-# ---------------------------------------------------------
-# INTERFACE
-# ---------------------------------------------------------
-app.layout = html.Div(
-    [
-        html.Div(
-            [
-                html.H1("GeoReceita"),
-                html.P("Camadas territoriais de Maringá — Bairros, Quadras e Lotes"),
-                dcc.Checklist(
-                    id="seletor-camadas",
-                    options=[{"label": f" {nome}", "value": nome} for nome in CRIADORES_LAYER],
-                    value=["Maringá", "Bairros"],  # camadas ligadas por padrão
-                    inline=True,
-                    style={"marginTop": "10px"},
-                ),
-            ],
-            style={"padding": "20px 30px", "backgroundColor": "#ffffff"},
-        ),
-        dash_deck.DeckGL(
-            monta_deck(["Maringá", "Bairros"]).to_json(),
-            id="mapa-deck",
-            style={"width": "100%", "height": "calc(100vh - 150px)"},
-        ),
-    ],
-    style={"margin": "0", "padding": "0", "fontFamily": "Arial, sans-serif"},
+deck = pdk.Deck(
+    layers=layers,
+    initial_view_state=view_state,
+    tooltip={
+        "html": "<b>{NOME}</b>{QUADRA_GEO}{LOTE}",
+        "style": {"backgroundColor": "white", "color": "black"},
+    },
+    map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
 )
 
-# ---------------------------------------------------------
-# CALLBACK — atualiza o mapa quando o usuário liga/desliga camadas
-# ---------------------------------------------------------
-@app.callback(
-    Output("mapa-deck", "data"),
-    Input("seletor-camadas", "value"),
-)
-def atualizar_camadas(camadas_selecionadas):
-    return monta_deck(camadas_selecionadas).to_json()
-
-
-if __name__ == "__main__":
-    app.run(debug=False, host="0.0.0.0", port=8050)
+st.pydeck_chart(deck, use_container_width=True, height=700)
