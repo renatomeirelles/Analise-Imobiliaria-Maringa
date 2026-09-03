@@ -150,7 +150,7 @@ def load_bairros(path: str) -> gpd.GeoDataFrame:
 # Carregar dados com proteção
 # =========================
 df_path = "data/imoveis_georreferenciados_novembro.xlsx"
-shp_path = "data/municipio_completo.shp"
+shp_path = "data/Bairros.shp"
 
 data_ok = True
 if not Path(df_path).exists():
