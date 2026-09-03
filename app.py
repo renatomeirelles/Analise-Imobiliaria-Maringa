@@ -141,6 +141,8 @@ def load_bairros(path: str) -> gpd.GeoDataFrame:
     try:
         gdf = gpd.read_file(path)
         gdf.columns = gdf.columns.str.strip()
+        if gdf.crs is not None and gdf.crs.to_epsg() != 4326:
+            gdf = gdf.to_crs("EPSG:4326")
         return gdf
     except Exception as e:
         st.error(f"Erro ao carregar shapefile: {e}")
