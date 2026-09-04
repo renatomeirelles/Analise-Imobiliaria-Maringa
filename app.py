@@ -1135,3 +1135,273 @@ else:
 
     except Exception as e:
         st.error(f"Não foi possível calcular a previsão IPTU/ITBI: {e}")
+
+# =========================
+# Botão de Relatório Técnico (Word)
+# =========================
+st.markdown("---")
+st.markdown("## 📄 Relatório Técnico")
+st.caption(
+    "Gera um documento Word com o diagnóstico completo: metodologia, "
+    "Índice de Desalinhamento Alíquota × Mercado e Índice de Descolamento IPTU × ITBI, "
+    "com os dados calculados nesta sessão."
+)
+
+from docx import Document
+from docx.shared import Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
+import datetime
+import io
+
+COR_PRIMARIA_DOC = RGBColor(0x0B, 0x3D, 0x2E)
+COR_POSITIVA_DOC = RGBColor(0x1B, 0x7A, 0x43)
+COR_NEGATIVA_DOC = RGBColor(0xB3, 0x26, 0x1E)
+COR_CINZA_DOC = RGBColor(0x55, 0x55, 0x55)
+
+
+def _sombreia_celula(cell, cor_hex):
+    tcPr = cell._tc.get_or_add_tcPr()
+    shd = OxmlElement('w:shd')
+    shd.set(qn('w:fill'), cor_hex)
+    tcPr.append(shd)
+
+
+def _formata_pct(v):
+    return f"{v*100:.1f}%".replace(".", ",")
+
+
+@st.cache_data(show_spinner=False)
+def _metadados_correspondencia_lei():
+    """Recalcula só as contagens gerais da correspondência lei x shapefile (leve, cacheado)."""
+    total_lei = len(aliquota_por_nome_lei)
+    total_confirmados = len(aliquota_por_bairro)
+    return total_lei, total_confirmados
+
+
+def gerar_relatorio_docx(indice_por_bairro, df_serie_hist=None, cagr_iptu_val=None, cagr_itbi_val=None):
+    df_indice = pd.DataFrame.from_dict(indice_por_bairro, orient="index").reset_index()
+    df_indice = df_indice.rename(columns={"index": "NOME"})
+    classificados_rel = df_indice[df_indice["classificado_pela_lei"] == True].copy()
+
+    doc = Document()
+
+    # --- Capa ---
+    for _ in range(6):
+        doc.add_paragraph()
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run("DIAGNÓSTICO ESPACIAL DA ARRECADAÇÃO MUNICIPAL")
+    run.bold = True
+    run.font.size = Pt(22)
+    run.font.color.rgb = COR_PRIMARIA_DOC
+
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run("Índice de Desalinhamento Alíquota × Mercado e Descolamento IPTU × ITBI")
+    run.font.size = Pt(13)
+    run.font.color.rgb = COR_CINZA_DOC
+
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run("Município de Maringá — PR")
+    run.font.size = Pt(12)
+    run.font.color.rgb = COR_CINZA_DOC
+
+    for _ in range(4):
+        doc.add_paragraph()
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.add_run("Documento técnico preliminar — versão piloto").italic = True
+
+    for _ in range(6):
+        doc.add_paragraph()
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.add_run(f"Gerado automaticamente em {datetime.date.today().strftime('%d/%m/%Y')}")
+
+    doc.add_page_break()
+
+    # --- 1. Sumário Executivo ---
+    doc.add_heading("1. Sumário Executivo", level=1)
+    doc.add_paragraph(
+        "Este relatório apresenta os resultados de um diagnóstico técnico da arrecadação imobiliária "
+        "do município de Maringá, cruzando dados de mercado (oferta de imóveis georreferenciada) com "
+        "a base tributária vigente (Planta Genérica de Valores e alíquotas de IPTU definidas pela "
+        "Lei Complementar 1.506/2026)."
+    )
+    doc.add_paragraph(
+        "Dois achados centrais estruturam este documento: (1) um Índice de Desalinhamento Alíquota × "
+        "Mercado, comparando a posição de preço de mercado de cada bairro à alíquota de IPTU aplicada; "
+        "e (2) um Índice de Descolamento IPTU × ITBI, que mede se a arrecadação predial acompanha, ao "
+        "longo do tempo, o ritmo de crescimento das transações reais de mercado."
+    )
+
+    doc.add_heading("Principais números", level=2)
+    total_lei, total_confirmados = _metadados_correspondencia_lei()
+    n_com_amostra = len(classificados_rel)
+
+    bullets = [
+        f"{total_lei} zonas/loteamentos identificados na Lei Complementar 1.506/2026 com alíquota reduzida (0,3% ou 0,6%).",
+        f"{total_confirmados} bairros do cadastro geográfico correspondidos com confiança técnica às faixas de alíquota da lei.",
+        f"{n_com_amostra} bairros com amostra de mercado suficiente para comparação estatística direta.",
+    ]
+    if not classificados_rel.empty:
+        top1 = classificados_rel.sort_values("indice_desalinhamento", ascending=False).iloc[0]
+        bullets.append(
+            f"O caso de maior desalinhamento identificado — {top1['NOME'].title()} — está no percentil "
+            f"{top1['percentil_preco']:.1f} de preço de mercado, tributado em alíquota de "
+            f"{_formata_pct(top1['aliquota'])} (índice: +{top1['indice_desalinhamento']:.1f})."
+        )
+    for b in bullets:
+        doc.add_paragraph(b, style="List Bullet")
+
+    # --- 2. Metodologia ---
+    doc.add_heading("2. Metodologia", level=1)
+    doc.add_heading("2.1 Fontes de dados", level=2)
+    for b in [
+        "Base de oferta de imóveis residenciais georreferenciados de Maringá.",
+        "Shapefile oficial de bairros do município (cadastro geográfico municipal).",
+        "Lei Complementar 1.506/2026 (Maringá/PR) — Planta Genérica de Valores e Anexo VIII.",
+        "Série histórica de arrecadação municipal de IPTU e ITBI.",
+    ]:
+        doc.add_paragraph(b, style="List Bullet")
+
+    doc.add_heading("2.2 Correspondência entre a nomenclatura da lei e o cadastro geográfico", level=2)
+    doc.add_paragraph(
+        "A correspondência entre os nomes de zona/loteamento da lei e os nomes de bairro do cadastro "
+        "geográfico foi realizada por algoritmo de similaridade textual (fuzzy matching, contenção de "
+        "substring), com limiar de aceitação automática de 85%."
+    )
+
+    doc.add_heading("2.3 Índice de Desalinhamento Alíquota × Mercado", level=2)
+    doc.add_paragraph(
+        "Para cada bairro com amostra suficiente, calculou-se o percentil de preço médio por m² na "
+        "distribuição municipal, comparado à posição esperada dado o nível de alíquota (0,3% → "
+        "percentil ~16,5; 0,6% → ~50,0; 1,0% → ~83,5). O índice é a diferença entre o percentil real "
+        "e o esperado."
+    )
+    doc.add_paragraph(
+        "Nota metodológica: o índice atual é ordinal (posição relativa de mercado), não uma comparação "
+        "direta em R$ contra o valor venal individual da Planta Genérica de Valores. A evolução para uma "
+        "comparação cardinal depende de acesso a dados administrativos do cadastro imobiliário municipal "
+        "(tabela de valores por logradouro, padrão construtivo por imóvel)."
+    )
+
+    doc.add_page_break()
+
+    # --- 3. Achado 1 ---
+    doc.add_heading("3. Achado 1 — Índice de Desalinhamento Alíquota × Mercado", level=1)
+    if classificados_rel.empty:
+        doc.add_paragraph("Nenhum bairro com amostra suficiente disponível nesta execução.")
+    else:
+        doc.add_paragraph(
+            f"A tabela a seguir apresenta os bairros com maior sinal de desalinhamento positivo, entre "
+            f"os {n_com_amostra} bairros com amostra estatística suficiente."
+        )
+        top20 = classificados_rel.sort_values("indice_desalinhamento", ascending=False).head(20)
+
+        table = doc.add_table(rows=1, cols=5)
+        table.alignment = WD_TABLE_ALIGNMENT.CENTER
+        table.style = "Light Grid Accent 1"
+        hdr = table.rows[0].cells
+        for i, txt in enumerate(["Bairro", "Alíquota", "N° imóveis", "Percentil", "Índice"]):
+            hdr[i].text = txt
+            hdr[i].paragraphs[0].runs[0].bold = True
+            hdr[i].paragraphs[0].runs[0].font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+            _sombreia_celula(hdr[i], "0B3D2E")
+
+        for _, row in top20.iterrows():
+            cells = table.add_row().cells
+            cells[0].text = str(row["NOME"]).title()
+            cells[1].text = _formata_pct(row["aliquota"])
+            cells[2].text = str(int(row["n_imoveis"]))
+            cells[3].text = f"{row['percentil_preco']:.1f}"
+            run = cells[4].paragraphs[0].add_run(f"{row['indice_desalinhamento']:+.1f}")
+            run.font.color.rgb = COR_POSITIVA_DOC if row["indice_desalinhamento"] >= 0 else COR_NEGATIVA_DOC
+            run.bold = True
+
+        doc.add_paragraph()
+        doc.add_heading("Leitura do achado principal", level=2)
+        top1 = top20.iloc[0]
+        doc.add_paragraph(
+            f"{top1['NOME'].title()} apresenta o maior índice de desalinhamento identificado "
+            f"(+{top1['indice_desalinhamento']:.1f}), com {int(top1['n_imoveis'])} imóveis na amostra. "
+            "Trata-se de um caso objetivo de subtributação relativa, a ser priorizado em eventual "
+            "revisão de zoneamento fiscal."
+        )
+
+    # --- 4. Achado 2 ---
+    doc.add_heading("4. Achado 2 — Índice de Descolamento IPTU × ITBI", level=1)
+    if cagr_iptu_val is not None and cagr_itbi_val is not None:
+        doc.add_paragraph(
+            f"Crescimento anual médio (CAGR): IPTU = {cagr_iptu_val*100:.1f}% ao ano; "
+            f"ITBI = {cagr_itbi_val*100:.1f}% ao ano."
+        )
+        diferenca = (cagr_itbi_val - cagr_iptu_val) * 100
+        if diferenca > 0.5:
+            doc.add_paragraph(
+                f"O ITBI cresce {diferenca:.1f} pontos percentuais ao ano mais rápido que o IPTU, "
+                "indício de defasagem crescente da base tributária frente ao mercado."
+            )
+        elif diferenca < -0.5:
+            doc.add_paragraph(
+                f"O IPTU cresce {-diferenca:.1f} pontos percentuais ao ano mais rápido que o ITBI — "
+                "a base tributária está acompanhando ou superando o mercado."
+            )
+        else:
+            doc.add_paragraph("IPTU e ITBI crescem em ritmo semelhante, sem sinal relevante de descolamento agregado.")
+    else:
+        doc.add_paragraph(
+            "Não foi possível calcular esta seção nesta execução — verifique se a série histórica "
+            "foi carregada corretamente mais acima no aplicativo."
+        )
+
+    # --- 5. Limitações ---
+    doc.add_heading("5. Limitações e Próximos Passos", level=1)
+    for b in [
+        f"A correspondência foi confirmada para {total_confirmados} das {total_lei} zonas/loteamentos listadas na lei; casos abaixo do limiar de confiança não foram classificados.",
+        "A análise utiliza dados de oferta (anúncios), não valores efetivos de transação ou valor venal individual por imóvel.",
+        "Bairros com amostra de mercado insuficiente foram excluídos da comparação estatística.",
+        "Recomenda-se validação conjunta com a Secretaria de Fazenda e ampliação com dados administrativos internos (valor venal por logradouro, padrão construtivo por imóvel).",
+    ]:
+        doc.add_paragraph(b, style="List Bullet")
+
+    # --- 6. Recomendações ---
+    doc.add_heading("6. Recomendações", level=1)
+    recomendacoes = [
+        "Instituir acompanhamento periódico do Índice de Descolamento IPTU × ITBI.",
+        "Padronizar identificador único de bairro/loteamento entre os sistemas tributário e cadastral.",
+        "Avaliar ampliação do diagnóstico com dados administrativos internos (valor venal individual, ITBI por transação).",
+    ]
+    if not classificados_rel.empty:
+        top5_nomes = ", ".join(classificados_rel.sort_values("indice_desalinhamento", ascending=False)["NOME"].str.title().head(5))
+        recomendacoes.insert(0, f"Priorizar a revisão de zoneamento fiscal dos bairros: {top5_nomes}.")
+    for b in recomendacoes:
+        doc.add_paragraph(b, style="List Bullet")
+
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+# --- Botão que dispara a geração ---
+if st.button("📄 Gerar Relatório Técnico (Word)"):
+    with st.spinner("Montando o relatório..."):
+        cagr_iptu_atual = globals().get("cagr_iptu")
+        cagr_itbi_atual = globals().get("cagr_itbi")
+        buffer_relatorio = gerar_relatorio_docx(
+            indice_desalinhamento_por_bairro,
+            cagr_iptu_val=cagr_iptu_atual,
+            cagr_itbi_val=cagr_itbi_atual,
+        )
+    st.success("Relatório gerado com sucesso.")
+    st.download_button(
+        label="⬇️ Baixar Relatório (.docx)",
+        data=buffer_relatorio,
+        file_name=f"relatorio_diagnostico_maringa_{datetime.date.today().strftime('%Y%m%d')}.docx",
+        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )

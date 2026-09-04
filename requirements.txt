@@ -10,3 +10,4 @@ geopandas
 shapely
 openpyxl
 rapidfuzz
+python-docx
