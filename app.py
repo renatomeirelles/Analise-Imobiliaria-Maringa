@@ -480,9 +480,11 @@ Portal das Torres
     resumo["centro_esperado"] = resumo["aliquota"].map(centro_esperado)
     resumo["indice_desalinhamento"] = (resumo["percentil_preco"] - resumo["centro_esperado"]).round(1)
 
-    return resumo.set_index("NOME_norm").to_dict(orient="index")
+        total_lei = len(aliquota_por_nome_lei)
+    total_confirmados = len(aliquota_por_bairro)
+    return resumo.set_index("NOME_norm").to_dict(orient="index"), total_lei, total_confirmados
 
-indice_desalinhamento_por_bairro = calcular_indice_desalinhamento(df, gdf_bairros)
+indice_desalinhamento_por_bairro, total_lei_metadados, total_confirmados_metadados = calcular_indice_desalinhamento(df, gdf_bairros)
 
 # =========================
 # Paleta e faixas para o mapa coroplético
@@ -1173,15 +1175,7 @@ def _formata_pct(v):
     return f"{v*100:.1f}%".replace(".", ",")
 
 
-@st.cache_data(show_spinner=False)
-def _metadados_correspondencia_lei():
-    """Recalcula só as contagens gerais da correspondência lei x shapefile (leve, cacheado)."""
-    total_lei = len(aliquota_por_nome_lei)
-    total_confirmados = len(aliquota_por_bairro)
-    return total_lei, total_confirmados
-
-
-def gerar_relatorio_docx(indice_por_bairro, df_serie_hist=None, cagr_iptu_val=None, cagr_itbi_val=None):
+def gerar_relatorio_docx(indice_por_bairro, total_lei, total_confirmados, df_serie_hist=None, cagr_iptu_val=None, cagr_itbi_val=None):
     df_indice = pd.DataFrame.from_dict(indice_por_bairro, orient="index").reset_index()
     df_indice = df_indice.rename(columns={"index": "NOME"})
     classificados_rel = df_indice[df_indice["classificado_pela_lei"] == True].copy()
@@ -1240,7 +1234,6 @@ def gerar_relatorio_docx(indice_por_bairro, df_serie_hist=None, cagr_iptu_val=No
     )
 
     doc.add_heading("Principais números", level=2)
-    total_lei, total_confirmados = _metadados_correspondencia_lei()
     n_com_amostra = len(classificados_rel)
 
     bullets = [
@@ -1395,6 +1388,8 @@ if st.button("📄 Gerar Relatório Técnico (Word)"):
         cagr_itbi_atual = globals().get("cagr_itbi")
         buffer_relatorio = gerar_relatorio_docx(
             indice_desalinhamento_por_bairro,
+            total_lei_metadados,
+            total_confirmados_metadados,
             cagr_iptu_val=cagr_iptu_atual,
             cagr_itbi_val=cagr_itbi_atual,
         )
