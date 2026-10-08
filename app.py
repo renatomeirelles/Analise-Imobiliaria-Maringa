@@ -676,7 +676,17 @@ with col_map:
         tooltip=tooltip,
     )
 
-    st.pydeck_chart(deck, height=520)
+        RENDER_MAPA_PROPRIO = True  # False = volta ao mapa nativo do Streamlit
+
+    if RENDER_MAPA_PROPRIO:
+        try:
+            import streamlit.components.v1 as components
+            components.html(deck.to_html(as_string=True), height=520)
+        except Exception as e:
+            st.warning(f"Renderização alternativa indisponível ({e}); usando o mapa padrão.")
+            st.pydeck_chart(deck, height=520)
+    else:
+        st.pydeck_chart(deck, height=520)
 
     # =========================
     # BLOCO 9 — Estatísticas resumidas abaixo do mapa
