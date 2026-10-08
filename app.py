@@ -3,19 +3,22 @@
 # =========================
 import json
 import warnings
+from datetime import datetime
 from html import escape
+from io import BytesIO
 from pathlib import Path
 
 import geopandas as gpd
 import h3
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import pydeck as pdk
 import streamlit as st
 from statsmodels.tsa.arima.model import ARIMA
 
-# Obs.: osmnx e shapely.box agora são importados só dentro da função que busca
-# edifícios ao vivo no OpenStreetMap (BLOCO 8). Assim o app inicia bem mais rápido.
+# Obs.: osmnx e shapely.box são importados só dentro da função que busca
+# edifícios ao vivo no OpenStreetMap (BLOCO 8). Assim o app inicia mais rápido.
 
 warnings.filterwarnings("ignore")
 
@@ -27,9 +30,13 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# True  = no celular a barra de filtros fica fixa embaixo da tela (estilo app)
+# False = a barra de filtros fica no topo, também no celular
+BARRA_FIXA_NO_CELULAR = True
+
 
 # =========================
-# BLOCO 1B — Funções auxiliares de formatação e de interface
+# BLOCO 1B — Funções auxiliares de formatação
 # =========================
 def _num_br(v, casas=2):
     """Número no padrão brasileiro: 1.234.567,89"""
@@ -56,35 +63,10 @@ def fmt_pct(v):
     return f"{seta}{_num_br(abs(v), 1)}%"
 
 
-def card_detalhe(titulo, linhas):
-    """Card de detalhes mostrado ao tocar/clicar em um item do mapa."""
-    itens = "".join(
-        f'<div><div class="rot">{escape(str(rotulo))}</div><b>{escape(str(valor if valor is not None else "—"))}</b></div>'
-        for rotulo, valor in linhas
-    )
-    st.markdown(
-        f'<div class="card-detalhe"><div class="titulo">{escape(str(titulo))}</div>'
-        f'<div class="grade">{itens}</div></div>',
-        unsafe_allow_html=True,
-    )
-
-
-def objeto_selecionado(evento, layer_id):
-    """Devolve o objeto tocado/clicado no mapa (ou None)."""
-    if evento is None or layer_id is None:
-        return None
-    try:
-        objetos = evento.selection.objects.get(layer_id, [])
-        return objetos[0] if objetos else None
-    except Exception:
-        return None
-
-
 # =========================
 # BLOCO 2 — CSS e título
 # =========================
-st.markdown("""
-<style>
+CSS_BASE = """
 .block-container {
     padding-top: 2.5rem;
     padding-bottom: 0.5rem;
@@ -123,43 +105,74 @@ h1, h2, h3 {
     font-size: 16px;
 }
 
-/* Card de detalhes (aparece ao tocar/clicar no mapa) */
-.card-detalhe {
-    background: #161616;
+/* Barra de filtros (botões que abrem as opções) */
+.st-key-barra_filtros {
+    background: #111;
     border: 1px solid #2a2a2a;
-    border-left: 4px solid #00CED1;
-    border-radius: 8px;
-    padding: 0.8rem 1rem;
-    margin-top: 0.6rem;
-    color: white;
-    font-size: 14px;
-    line-height: 1.45;
+    border-radius: 10px;
+    padding: 0.4rem 0.5rem;
+    margin-bottom: 0.6rem;
 }
-.card-detalhe .titulo {
-    font-size: 16px;
-    font-weight: 700;
-    margin-bottom: 0.4rem;
+.st-key-barra_filtros [data-testid="stPopover"],
+.st-key-barra_filtros [data-testid="stPopover"] > div {
+    width: 100%;
 }
-.card-detalhe .grade {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.35rem 1rem;
-}
-.card-detalhe .rot {
-    opacity: 0.65;
-    font-size: 12px;
+.st-key-barra_filtros button {
+    width: 100%;
+    font-weight: 600;
 }
 
-/* Ajustes para celular */
-@media (max-width: 640px) {
+/* Ajustes gerais para celular */
+@media (max-width: 768px) {
     .block-container {
         padding-left: 0.7rem;
         padding-right: 0.7rem;
         padding-top: 1.5rem;
     }
 }
-</style>
-""", unsafe_allow_html=True)
+"""
+
+# No celular: a barra de filtros vira uma barra fixa na parte de baixo da tela,
+# com os botões lado a lado (o Streamlit empilharia as colunas por padrão).
+CSS_BARRA_FIXA = """
+@media (max-width: 768px) {
+    .st-key-barra_filtros {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        z-index: 100;
+        margin: 0;
+        border-radius: 14px 14px 0 0;
+        border-bottom: none;
+        padding: 0.45rem 0.6rem calc(0.45rem + env(safe-area-inset-bottom, 0px));
+        box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.5);
+    }
+    .st-key-barra_filtros [data-testid="stHorizontalBlock"] {
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        gap: 0.4rem !important;
+    }
+    .st-key-barra_filtros [data-testid="stColumn"],
+    .st-key-barra_filtros [data-testid="column"] {
+        min-width: 0 !important;
+        width: auto !important;
+        flex: 1 1 0 !important;
+    }
+    .st-key-barra_filtros button {
+        font-size: 12px;
+        padding: 0.35rem 0.2rem;
+    }
+    .block-container {
+        padding-bottom: 6rem !important;
+    }
+}
+"""
+
+st.markdown(
+    "<style>" + CSS_BASE + (CSS_BARRA_FIXA if BARRA_FIXA_NO_CELULAR else "") + "</style>",
+    unsafe_allow_html=True,
+)
 
 st.markdown(
     '<div class="titulo-com-fundo">Plataforma de Inteligência Territorial</div>',
@@ -167,50 +180,51 @@ st.markdown(
 )
 
 # =========================
-# BLOCO 3 — Layout: filtros (esquerda) | mapa (centro, maior) | gráfico (direita, menor)
+# BLOCO 3 — Barra de filtros e layout (mapa | gráfico)
+# No computador: barra no topo. No celular: barra fixa embaixo da tela.
 # =========================
-col_filters, col_map, col_chart = st.columns([3, 6, 3], gap="small")
+ESTATISTICAS = [
+    "Preço médio total",
+    "Preço médio por m²",
+    "Preço médio apartamentos",
+    "Preço médio por m² apartamentos",
+    "Preço médio casas",
+    "Preço médio por m² casas",
+    "Preço médio condomínios",
+    "Preço médio por m² condomínios",
+]
+TIPOS_MAPA = ["Coroplético", "Pontos", "Densidade 3D (hexbin)", "Calor", "Edifícios 3D (OSM)"]
+TIPOS_GRAFICO = ["Histograma", "Barras por bairro", "Boxplot por tipo"]
 
-with col_filters:
-    st.markdown("## 🎛️ Filtros")
+with st.container(key="barra_filtros"):
+    bc1, bc2, bc3 = st.columns(3, gap="small")
 
-    tipo_estatistica = st.selectbox(
-        "Selecione a estatística:",
-        [
-            "Preço médio total",
-            "Preço médio por m²",
-            "Preço médio apartamentos",
-            "Preço médio por m² apartamentos",
-            "Preço médio casas",
-            "Preço médio por m² casas",
-            "Preço médio condomínios",
-            "Preço médio por m² condomínios",
-        ],
-        index=0,
-        key="estatistica_selectbox"
-    )
+    with bc1:
+        with st.popover("📊 Estatística"):
+            tipo_estatistica = st.radio(
+                "Selecione a estatística:", ESTATISTICAS, index=0, key="estatistica_radio"
+            )
 
-    tipo_mapa = st.selectbox(
-        "Selecione o tipo de mapa:",
-        ["Coroplético", "Pontos", "Densidade 3D (hexbin)", "Calor", "Edifícios 3D (OSM)"],
-        index=0,
-        key="mapa_selectbox"
-    )
+    with bc2:
+        with st.popover("🗺️ Mapa"):
+            tipo_mapa = st.radio(
+                "Selecione o tipo de mapa:", TIPOS_MAPA, index=0, key="mapa_radio"
+            )
+            metrica_hexbin = st.radio(
+                "No hexbin 3D, medir por:",
+                ["Quantidade de imóveis", "Valor médio"],
+                index=0,
+                key="metrica_hexbin_radio",
+                help="Só se aplica quando o tipo de mapa é 'Densidade 3D (hexbin)'.",
+            )
 
-    metrica_hexbin = st.selectbox(
-        "No hexbin 3D, medir por:",
-        ["Quantidade de imóveis", "Valor médio"],
-        index=0,
-        key="metrica_hexbin_selectbox",
-        help="Só se aplica quando o tipo de mapa é 'Densidade 3D (hexbin)'."
-    )
+    with bc3:
+        with st.popover("📉 Gráfico"):
+            grafico_tipo = st.radio(
+                "Selecione o gráfico:", TIPOS_GRAFICO, index=0, key="grafico_radio"
+            )
 
-    grafico_tipo = st.selectbox(
-        "Selecione o gráfico:",
-        ["Histograma", "Barras por bairro", "Boxplot por tipo"],
-        index=0,
-        key="grafico_selectbox"
-    )
+col_map, col_chart = st.columns([8, 4], gap="small")
 
 # =========================
 # BLOCO 4 — Funções de carga de dados
@@ -400,6 +414,9 @@ def agregar_por_bairro(df_in, coluna, _gdf_bairros):
     return stats.round(2)
 
 
+CAMPOS_TOOLTIP_COROPLETICO = ("NOME", "media_fmt", "minimo_fmt", "maximo_fmt", "variacao_fmt", "qtd_fmt")
+
+
 @st.cache_data(show_spinner=False)
 def montar_geojson_coropletico(stats, _gdf_bairros, bins, sufixo):
     gdf_plot = _gdf_bairros[["geometry", "NOME"]].merge(stats, on="NOME", how="left")
@@ -409,19 +426,27 @@ def montar_geojson_coropletico(stats, _gdf_bairros, bins, sufixo):
     gdf_plot["maximo_fmt"] = gdf_plot["maximo"].apply(lambda v: fmt_brl(v, sufixo=sufixo))
     gdf_plot["variacao_fmt"] = gdf_plot["variacao"].apply(fmt_pct)
     gdf_plot["qtd_fmt"] = gdf_plot["qtd"].apply(fmt_int)
-    return json.loads(
+    geojson = json.loads(
         gdf_plot[[
             "geometry", "NOME", "media_fmt", "minimo_fmt", "maximo_fmt",
             "variacao_fmt", "qtd_fmt", "fill_color"
         ]].to_json()
     )
+    # Copia os campos do tooltip para o nível da feature também. Assim o balão
+    # funciona qualquer que seja a forma como a versão do Streamlit/pydeck lê os
+    # campos (direto ou dentro de "properties").
+    for feat in geojson["features"]:
+        for campo in CAMPOS_TOOLTIP_COROPLETICO:
+            feat[campo] = feat["properties"].get(campo)
+    return geojson
 
 
 # =========================
-# BLOCO 8 — Mapa (pydeck / deck.gl)
+# BLOCO 8 — Mapa (pydeck / deck.gl) com tooltip
 # =========================
 with col_map:
     st.markdown("### 🗺️ Mapa")
+    st.caption(f"📊 {tipo_estatistica}  ·  🗺️ {tipo_mapa}")
 
     view_state = pdk.ViewState(
         latitude=-23.4205,
@@ -433,20 +458,16 @@ with col_map:
     bins = faixas_dict.get(estatistica_norm, faixas_base['preco'])
     layers = []
     tooltip = None
-    layer_id = None  # camada que responde ao toque/clique (alimenta o cartão de detalhes)
 
     if tipo_mapa == "Coroplético":
         df_stats = agregar_por_bairro(
             df_filtrado[["latitude", "longitude", coluna_valor]], coluna_valor, gdf_bairros
         )
         geojson = montar_geojson_coropletico(df_stats, gdf_bairros, tuple(bins), sufixo_unid)
-
-        layer_id = "coropletico"
         layers.append(
             pdk.Layer(
                 "GeoJsonLayer",
                 geojson,
-                id=layer_id,
                 stroked=True,
                 filled=True,
                 get_fill_color="properties.fill_color",
@@ -456,15 +477,15 @@ with col_map:
                 auto_highlight=True,
             )
         )
-        # CORREÇÃO DO TOOLTIP: em camadas GeoJSON os campos ficam dentro de
-        # "properties", então o caminho correto é {properties.CAMPO}.
+        # Tooltip do mapa (balão ao passar o mouse / tocar no bairro)
         tooltip = {
             "html": (
-                "<b>{properties.NOME}</b><br/>"
-                "Média: {properties.media_fmt}<br/>"
-                "Mínimo: {properties.minimo_fmt}<br/>"
-                "Máximo: {properties.maximo_fmt}<br/>"
-                "Variação vs. município: {properties.variacao_fmt}"
+                "<b>{NOME}</b><br/>"
+                "Imóveis: {qtd_fmt}<br/>"
+                "Média: {media_fmt}<br/>"
+                "Mínimo: {minimo_fmt}<br/>"
+                "Máximo: {maximo_fmt}<br/>"
+                "Variação vs. município: {variacao_fmt}"
             ),
             "style": {"backgroundColor": "#111111", "color": "white", "fontSize": "13px"},
         }
@@ -473,12 +494,10 @@ with col_map:
         # Envia ao navegador só as colunas necessárias (antes ia a planilha inteira)
         pontos = df_filtrado[["longitude", "latitude", "Tipo", "valor_tooltip"]].copy()
         pontos["valor_fmt"] = pontos["valor_tooltip"].apply(lambda v: fmt_brl(v, sufixo=sufixo_unid))
-        layer_id = "pontos"
         layers.append(
             pdk.Layer(
                 "ScatterplotLayer",
                 pontos,
-                id=layer_id,
                 get_position=["longitude", "latitude"],
                 get_radius=35,
                 get_fill_color=[0, 206, 209, 160],
@@ -525,13 +544,10 @@ with col_map:
             agg_hex["label"] = agg_hex["qtd"].apply(lambda v: f"{fmt_int(v)} imóveis")
         else:
             agg_hex["label"] = agg_hex["media"].apply(lambda v: fmt_brl(v, sufixo=sufixo_unid))
-
-        layer_id = "hexagonos"
         layers.append(
             pdk.Layer(
                 "H3HexagonLayer",
                 agg_hex,
-                id=layer_id,
                 get_hexagon="hex",
                 get_fill_color="fill_color",
                 get_elevation="elevation",
@@ -616,13 +632,12 @@ with col_map:
                 geojson_predios = json.loads(
                     gdf_predios[["geometry", "altura", "altura_fmt", "fill_color"]].to_json()
                 )
-
-                layer_id = "edificios"
+                for feat in geojson_predios["features"]:
+                    feat["altura_fmt"] = feat["properties"].get("altura_fmt")
                 layers.append(
                     pdk.Layer(
                         "GeoJsonLayer",
                         geojson_predios,
-                        id=layer_id,
                         stroked=False,
                         filled=True,
                         extruded=True,
@@ -632,7 +647,7 @@ with col_map:
                     )
                 )
                 tooltip = {
-                    "html": "Altura estimada: {properties.altura_fmt}",
+                    "html": "Altura estimada: {altura_fmt}",
                     "style": {"backgroundColor": "#111111", "color": "white", "fontSize": "13px"},
                 }
         except Exception as e:
@@ -661,47 +676,11 @@ with col_map:
         tooltip=tooltip,
     )
 
-    # on_select: ao tocar/clicar em um item do mapa, o app recebe o objeto e mostra
-    # o cartão de detalhes abaixo (funciona no celular, onde não existe "hover").
-    # Se a versão do Streamlit for antiga e não suportar, cai no mapa simples.
-    try:
-        evento_mapa = st.pydeck_chart(
-            deck,
-            height=480,
-            on_select="rerun",
-            selection_mode="single-object",
-            key="mapa_principal",
-        )
-    except TypeError:
-        st.pydeck_chart(deck, height=480)
-        evento_mapa = None
+    st.pydeck_chart(deck, height=520)
 
     # =========================
-    # BLOCO 9 — Cartão de detalhes + estatísticas resumidas abaixo do mapa
+    # BLOCO 9 — Estatísticas resumidas abaixo do mapa
     # =========================
-    objeto = objeto_selecionado(evento_mapa, layer_id)
-    if objeto is not None:
-        props = objeto.get("properties", objeto)
-        if tipo_mapa == "Coroplético":
-            card_detalhe(
-                props.get("NOME") or "Bairro",
-                [
-                    ("Média", props.get("media_fmt")),
-                    ("Imóveis", props.get("qtd_fmt")),
-                    ("Mínimo", props.get("minimo_fmt")),
-                    ("Máximo", props.get("maximo_fmt")),
-                    ("Variação vs. município", props.get("variacao_fmt")),
-                ],
-            )
-        elif tipo_mapa == "Pontos":
-            card_detalhe(props.get("Tipo") or "Imóvel", [("Valor", props.get("valor_fmt"))])
-        elif tipo_mapa == "Densidade 3D (hexbin)":
-            card_detalhe("Célula do mapa", [(metrica_hexbin, props.get("label"))])
-        elif tipo_mapa == "Edifícios 3D (OSM)":
-            card_detalhe("Edifício", [("Altura", props.get("altura_fmt"))])
-    elif layer_id is not None:
-        st.caption("👆 Toque (ou clique) em um item do mapa para ver os detalhes.")
-
     num_imoveis = len(df_filtrado)
     media_imoveis = df_filtrado[coluna_valor].mean() if num_imoveis else 0
 
@@ -763,7 +742,7 @@ with col_chart:
     st.plotly_chart(fig, use_container_width=True)
 
 # =========================
-# BLOCO 11 — Série histórica IPTU/ITBI + previsão ARIMA
+# BLOCO 11 — Série histórica IPTU/ITBI + previsão ARIMA + relação ITBI x IPTU
 # =========================
 st.markdown("---")
 st.markdown("### 📈 Histórico e Previsão — IPTU e ITBI")
@@ -818,12 +797,16 @@ def prever_arima(df, coluna, steps=2, reajuste=None):
 
 @st.cache_data(show_spinner=True)
 def calcular_previsoes(path):
-    """Mesma lógica de antes; só fica em cache para não refazer o ARIMA a cada clique."""
+    """Mesma lógica de antes; só fica em cache para não refazer o ARIMA a cada interação."""
     df_s = carregar_serie_historica(path)
     prev_i, ult_i = prever_arima(df_s, "IPTU", reajuste=REAJUSTE_ALIQUOTA_IPTU)
     prev_b, ult_b = prever_arima(df_s, "ITBI")
     return df_s, prev_i, ult_i, prev_b, ult_b
 
+
+# Variáveis usadas também pelo relatório (ficam None se a série não puder ser carregada)
+df_serie = prev_iptu = prev_itbi = None
+fig_temp = fig_razao = fig_disp = None
 
 if not Path(SERIE_HIST_PATH).exists():
     st.warning(f"Arquivo de série histórica não encontrado: {SERIE_HIST_PATH}")
@@ -906,6 +889,217 @@ else:
             previsao_html += "</ul></div>"
             st.markdown(previsao_html, unsafe_allow_html=True)
 
+        # -------------------------
+        # Relação ITBI x IPTU
+        # -------------------------
+        st.markdown("### ⚖️ Relação ITBI × IPTU")
+        try:
+            base_rel = df_serie[["ano", "IPTU", "ITBI"]].dropna()
+            base_rel = base_rel[base_rel["IPTU"] > 0].copy()
+            base_rel["razao"] = base_rel["ITBI"] / base_rel["IPTU"] * 100
+
+            prev_rel = prev_iptu.merge(prev_itbi, on="ano")
+            prev_rel["razao"] = prev_rel["ITBI_prev"] / prev_rel["IPTU_prev"] * 100
+            ligacao = base_rel.tail(1)[["ano", "razao"]]
+            prev_linha = pd.concat([ligacao, prev_rel[["ano", "razao"]]])
+
+            fig_razao = go.Figure()
+            fig_razao.add_trace(go.Scatter(
+                x=base_rel["ano"], y=base_rel["razao"],
+                mode="lines+markers", name="Histórico",
+                line=dict(color="#00CED1"),
+            ))
+            fig_razao.add_trace(go.Scatter(
+                x=prev_linha["ano"], y=prev_linha["razao"],
+                mode="lines+markers", name="Previsto",
+                line=dict(color="#FFA500", dash="dash"),
+            ))
+            fig_razao.update_layout(
+                template="plotly_dark", height=380,
+                title="ITBI como % do IPTU, por ano",
+                xaxis_title="Ano", yaxis_title="ITBI ÷ IPTU (%)",
+            )
+
+            fig_disp = px.scatter(
+                base_rel, x="IPTU", y="ITBI", text="ano", trendline="ols",
+                title="Dispersão ITBI × IPTU (histórico) com reta de regressão",
+                labels={"IPTU": "IPTU (R$)", "ITBI": "ITBI (R$)"},
+            )
+            fig_disp.update_traces(textposition="top center", selector=dict(mode="markers+text"))
+            fig_disp.update_layout(template="plotly_dark", height=380)
+
+            col_r1, col_r2 = st.columns(2, gap="medium")
+            with col_r1:
+                st.plotly_chart(fig_razao, use_container_width=True)
+            with col_r2:
+                st.plotly_chart(fig_disp, use_container_width=True)
+        except Exception as e:
+            st.warning(f"Não foi possível montar o gráfico ITBI × IPTU: {e}")
+
     except Exception as e:
         st.error(f"Não foi possível calcular a previsão IPTU/ITBI: {e}")
 
+
+
+# =========================
+# BLOCO 12 — Relatório (HTML para imprimir/salvar em PDF + Excel)
+# =========================
+def _tabela_html(df_tab):
+    return df_tab.to_html(index=False, border=0, classes="tabela", escape=True)
+
+
+def _agora_br():
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M")
+    except Exception:
+        return datetime.now().strftime("%d/%m/%Y %H:%M")
+
+
+def _fig_claro(fig):
+    """Cópia da figura em tema claro (melhor para impressão)."""
+    f = go.Figure(fig)
+    f.update_layout(template="plotly_white", plot_bgcolor="white", paper_bgcolor="white")
+    f.update_xaxes(gridcolor="#dddddd")
+    f.update_yaxes(gridcolor="#dddddd")
+    return f
+
+
+def gerar_relatorio_html(estatistica, n_imoveis, media_geral, stats_bairros, sufixo,
+                         serie, prev_i, prev_b, figs_serie):
+    partes = []
+    primeiro = True
+
+    def fig_html(fig):
+        nonlocal primeiro
+        h = fig.to_html(full_html=False, include_plotlyjs="cdn" if primeiro else False)
+        primeiro = False
+        return h
+
+    # Bairros
+    tab = stats_bairros.sort_values("media", ascending=False).copy()
+    top = tab.head(15).sort_values("media", ascending=True)
+    fig_b = px.bar(top, x="media", y="NOME", orientation="h",
+                   title="15 bairros com maior valor médio",
+                   labels={"media": "Valor médio (R$)", "NOME": ""})
+    fig_b.update_traces(marker_color="#0d54a0")
+    fig_b.update_layout(template="plotly_white", height=460)
+
+    tab_fmt = pd.DataFrame({
+        "Bairro": tab["NOME"],
+        "Imóveis": tab["qtd"].apply(fmt_int),
+        "Média": tab["media"].apply(lambda v: fmt_brl(v, sufixo=sufixo)),
+        "Mínimo": tab["minimo"].apply(lambda v: fmt_brl(v, sufixo=sufixo)),
+        "Máximo": tab["maximo"].apply(lambda v: fmt_brl(v, sufixo=sufixo)),
+        "Variação vs. município": tab["variacao"].apply(fmt_pct),
+    })
+
+    partes.append("<h2>1. Mercado imobiliário por bairro</h2>")
+    partes.append(f"<p>Estatística: <b>{escape(estatistica)}</b> · Imóveis considerados: <b>{fmt_int(n_imoveis)}</b> "
+                  f"· Valor médio no município: <b>{fmt_brl(media_geral, sufixo=sufixo)}</b></p>")
+    partes.append(fig_html(fig_b))
+    partes.append(_tabela_html(tab_fmt))
+
+    # Série histórica
+    if serie is not None and prev_i is not None and prev_b is not None:
+        hist = serie[["ano", "IPTU", "ITBI"]].copy()
+        hist["razao"] = hist.apply(
+            lambda r: (r["ITBI"] / r["IPTU"] * 100) if pd.notna(r["IPTU"]) and r["IPTU"] > 0 and pd.notna(r["ITBI"]) else None,
+            axis=1,
+        )
+        hist_fmt = pd.DataFrame({
+            "Ano": hist["ano"].astype(int),
+            "IPTU": hist["IPTU"].apply(fmt_brl),
+            "ITBI": hist["ITBI"].apply(fmt_brl),
+            "ITBI ÷ IPTU": hist["razao"].apply(lambda v: "—" if v is None or pd.isna(v) else f"{_num_br(v, 1)}%"),
+        })
+        prev_fmt = pd.DataFrame({
+            "Ano": prev_i["ano"].astype(int),
+            "IPTU previsto": prev_i["IPTU_prev"].apply(lambda v: fmt_brl(v, casas=0)),
+            "ITBI previsto": prev_b["ITBI_prev"].apply(lambda v: fmt_brl(v, casas=0)),
+        })
+        partes.append("<h2>2. Série histórica e previsão — IPTU e ITBI</h2>")
+        for f in figs_serie:
+            if f is not None:
+                partes.append(fig_html(_fig_claro(f)))
+        partes.append("<h3>Histórico</h3>" + _tabela_html(hist_fmt))
+        partes.append("<h3>Previsão</h3>" + _tabela_html(prev_fmt))
+        partes.append(
+            "<p class='nota'>Metodologia: previsão por modelo ARIMA(1,1,1) sobre a série anual. "
+            f"Reajuste de alíquota do IPTU de +{int(round((REAJUSTE_ALIQUOTA_IPTU['fator'] - 1) * 100))}% "
+            f"aplicado às previsões a partir de {REAJUSTE_ALIQUOTA_IPTU['ano_inicio']}.</p>"
+        )
+
+    corpo = "\n".join(partes)
+    return f"""<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<title>Relatório — Plataforma de Inteligência Territorial</title>
+<style>
+body {{ font-family: Arial, Helvetica, sans-serif; color:#111; max-width: 980px; margin: 24px auto; padding: 0 16px; }}
+h1 {{ margin-bottom: 4px; }} h2 {{ margin-top: 32px; border-bottom: 2px solid #0d54a0; padding-bottom: 4px; }}
+.sub {{ color:#555; margin-top:0; }}
+.tabela {{ border-collapse: collapse; width: 100%; font-size: 13px; margin: 12px 0; }}
+.tabela th {{ background:#0d54a0; color:#fff; text-align:left; padding:6px 8px; }}
+.tabela td {{ border-bottom:1px solid #ddd; padding:5px 8px; }}
+.nota {{ font-size: 12px; color:#555; }}
+@media print {{ h2 {{ page-break-before: auto; }} }}
+</style></head><body>
+<h1>Plataforma de Inteligência Territorial</h1>
+<p class="sub">Relatório gerado em {_agora_br()} (horário de Brasília)</p>
+{corpo}
+</body></html>"""
+
+
+def gerar_relatorio_xlsx(stats_bairros, serie, prev_i, prev_b):
+    buf = BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as xw:
+        bairros = stats_bairros.sort_values("media", ascending=False).rename(columns={
+            "NOME": "Bairro", "qtd": "Imóveis", "media": "Média", "minimo": "Mínimo",
+            "maximo": "Máximo", "variacao": "Variação vs. município (%)",
+        })
+        bairros.to_excel(xw, sheet_name="Bairros", index=False)
+        if serie is not None:
+            serie[["ano", "IPTU", "ITBI"]].to_excel(xw, sheet_name="Serie historica", index=False)
+        if prev_i is not None and prev_b is not None:
+            prev_i.merge(prev_b, on="ano").to_excel(xw, sheet_name="Previsao", index=False)
+    return buf.getvalue()
+
+
+st.markdown("---")
+st.markdown("### 📄 Relatório")
+st.caption("O relatório reflete a estatística escolhida na barra de filtros no momento em que você clicar em gerar.")
+
+if st.button("Gerar relatório", key="btn_relatorio"):
+    try:
+        with st.spinner("Montando relatório..."):
+            stats_rel = agregar_por_bairro(
+                df_filtrado[["latitude", "longitude", coluna_valor]], coluna_valor, gdf_bairros
+            )
+            st.session_state["relatorio_html"] = gerar_relatorio_html(
+                tipo_estatistica, len(df_filtrado), df_filtrado[coluna_valor].mean(), stats_rel,
+                sufixo_unid, df_serie, prev_iptu, prev_itbi, [fig_temp, fig_razao, fig_disp],
+            ).encode("utf-8")
+            st.session_state["relatorio_xlsx"] = gerar_relatorio_xlsx(stats_rel, df_serie, prev_iptu, prev_itbi)
+            st.session_state["relatorio_nome"] = tipo_estatistica
+    except Exception as e:
+        st.error(f"Não foi possível gerar o relatório: {e}")
+
+if "relatorio_html" in st.session_state:
+    st.success(f"Relatório pronto ({st.session_state.get('relatorio_nome', '')}).")
+    dl1, dl2 = st.columns(2, gap="small")
+    with dl1:
+        st.download_button(
+            "⬇️ Baixar relatório (HTML — abra e imprima/salve em PDF)",
+            data=st.session_state["relatorio_html"],
+            file_name="relatorio_inteligencia_territorial.html",
+            mime="text/html",
+            key="dl_relatorio_html",
+        )
+    with dl2:
+        st.download_button(
+            "⬇️ Baixar dados (Excel)",
+            data=st.session_state["relatorio_xlsx"],
+            file_name="dados_inteligencia_territorial.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dl_relatorio_xlsx",
+        )
