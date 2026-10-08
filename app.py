@@ -676,12 +676,15 @@ with col_map:
         tooltip=tooltip,
     )
 
-        RENDER_MAPA_PROPRIO = True  # False = volta ao mapa nativo do Streamlit
+    # Renderização com o motor próprio do pydeck: o balão (tooltip) é desenhado
+    # pelo deck.gl dentro do mapa. Se algo falhar, volta ao mapa nativo.
+    # Para desligar: troque True por False.
+    RENDER_MAPA_PROPRIO = True
 
     if RENDER_MAPA_PROPRIO:
         try:
             import streamlit.components.v1 as components
-            components.html(deck.to_html(as_string=True), height=520)
+            components.html(deck.to_html(as_string=True), height=520, scrolling=False)
         except Exception as e:
             st.warning(f"Renderização alternativa indisponível ({e}); usando o mapa padrão.")
             st.pydeck_chart(deck, height=520)
