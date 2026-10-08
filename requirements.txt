@@ -1,13 +1,12 @@
-streamlit
+streamlit>=1.46
 pydeck
 plotly
 statsmodels
-osmnx
-h3
+h3>=4
 pandas
 numpy
-geopandas
+geopandas>=0.14
 shapely
 openpyxl
-rapidfuzz
-python-docx
+# osmnx foi removido: só era usado para buscar edifícios ao vivo no OpenStreetMap
+# (o app usa data/edificios_maringa.geojson). Se precisar da busca ao vivo, adicione "osmnx".

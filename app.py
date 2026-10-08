@@ -1,33 +1,87 @@
 # =========================
-# Imports e configuração inicial
+# BLOCO 1 — Imports e configuração inicial
 # =========================
 import json
 import warnings
-import re
-import unicodedata
+from html import escape
+from pathlib import Path
 
 import geopandas as gpd
 import h3
-import osmnx as ox
 import pandas as pd
 import plotly.express as px
 import pydeck as pdk
 import streamlit as st
-from pathlib import Path
-from shapely.geometry import box
 from statsmodels.tsa.arima.model import ARIMA
+
+# Obs.: osmnx e shapely.box agora são importados só dentro da função que busca
+# edifícios ao vivo no OpenStreetMap (BLOCO 8). Assim o app inicia bem mais rápido.
 
 warnings.filterwarnings("ignore")
 
 # Configuração da página
 st.set_page_config(
     page_title="Plataforma de Inteligência Territorial",
+    page_icon="🗺️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
+
 # =========================
-# CSS
+# BLOCO 1B — Funções auxiliares de formatação e de interface
+# =========================
+def _num_br(v, casas=2):
+    """Número no padrão brasileiro: 1.234.567,89"""
+    s = f"{v:,.{casas}f}"
+    return s.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def fmt_brl(v, casas=2, sufixo=""):
+    if v is None or pd.isna(v):
+        return "sem dados"
+    return f"R$ {_num_br(v, casas)}{sufixo}"
+
+
+def fmt_int(v):
+    if v is None or pd.isna(v):
+        return "—"
+    return _num_br(v, 0)
+
+
+def fmt_pct(v):
+    if v is None or pd.isna(v):
+        return "sem dados"
+    seta = "▲ " if v > 0 else ("▼ " if v < 0 else "")
+    return f"{seta}{_num_br(abs(v), 1)}%"
+
+
+def card_detalhe(titulo, linhas):
+    """Card de detalhes mostrado ao tocar/clicar em um item do mapa."""
+    itens = "".join(
+        f'<div><div class="rot">{escape(str(rotulo))}</div><b>{escape(str(valor if valor is not None else "—"))}</b></div>'
+        for rotulo, valor in linhas
+    )
+    st.markdown(
+        f'<div class="card-detalhe"><div class="titulo">{escape(str(titulo))}</div>'
+        f'<div class="grade">{itens}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def objeto_selecionado(evento, layer_id):
+    """Devolve o objeto tocado/clicado no mapa (ou None)."""
+    if evento is None or layer_id is None:
+        return None
+    try:
+        objetos = evento.selection.objects.get(layer_id, [])
+        return objetos[0] if objetos else None
+    except Exception:
+        return None
+
+
+# =========================
+# BLOCO 2 — CSS e título
 # =========================
 st.markdown("""
 <style>
@@ -55,7 +109,7 @@ h1, h2, h3 {
     text-align: center;
     color: white;
     font-weight: 700;
-    font-size: 28px;
+    font-size: clamp(18px, 4.2vw, 28px);
     margin-top: 1rem;
     margin-bottom: 0.8rem;
 }
@@ -68,6 +122,42 @@ h1, h2, h3 {
 .stat-pequena b {
     font-size: 16px;
 }
+
+/* Card de detalhes (aparece ao tocar/clicar no mapa) */
+.card-detalhe {
+    background: #161616;
+    border: 1px solid #2a2a2a;
+    border-left: 4px solid #00CED1;
+    border-radius: 8px;
+    padding: 0.8rem 1rem;
+    margin-top: 0.6rem;
+    color: white;
+    font-size: 14px;
+    line-height: 1.45;
+}
+.card-detalhe .titulo {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 0.4rem;
+}
+.card-detalhe .grade {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.35rem 1rem;
+}
+.card-detalhe .rot {
+    opacity: 0.65;
+    font-size: 12px;
+}
+
+/* Ajustes para celular */
+@media (max-width: 640px) {
+    .block-container {
+        padding-left: 0.7rem;
+        padding-right: 0.7rem;
+        padding-top: 1.5rem;
+    }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -77,7 +167,7 @@ st.markdown(
 )
 
 # =========================
-# Layout: filtros (esquerda) | mapa (centro, maior) | gráfico (direita, menor)
+# BLOCO 3 — Layout: filtros (esquerda) | mapa (centro, maior) | gráfico (direita, menor)
 # =========================
 col_filters, col_map, col_chart = st.columns([3, 6, 3], gap="small")
 
@@ -122,13 +212,8 @@ with col_filters:
         key="grafico_selectbox"
     )
 
-    st.markdown("### 🗂️ Camadas extras")
-    mostrar_maringa = st.checkbox("Limite de Maringá", value=True, key="chk_maringa")
-    mostrar_quadras = st.checkbox("Quadras", value=False, key="chk_quadras")
-    mostrar_lotes = st.checkbox("Lotes", value=False, key="chk_lotes")
-
 # =========================
-# Funções de carga de dados
+# BLOCO 4 — Funções de carga de dados
 # =========================
 @st.cache_data(show_spinner=True)
 def load_df(path: str) -> pd.DataFrame:
@@ -148,33 +233,16 @@ def load_bairros(path: str) -> gpd.GeoDataFrame:
     try:
         gdf = gpd.read_file(path)
         gdf.columns = gdf.columns.str.strip()
-        if gdf.crs is not None and gdf.crs.to_epsg() != 4326:
-            gdf = gdf.to_crs("EPSG:4326")
-        return gdf
-    except Exception as e:
-        st.error(f"Erro ao carregar shapefile: {e}")
-        return gpd.GeoDataFrame()
-
-@st.cache_data(show_spinner=True)
-def load_shapefile_generico(path: str) -> gpd.GeoDataFrame:
-    try:
-        gdf = gpd.read_file(path)
-        gdf.columns = gdf.columns.str.strip()
-        if gdf.crs is not None and gdf.crs.to_epsg() != 4326:
-            gdf = gdf.to_crs("EPSG:4326")
         return gdf
     except Exception as e:
         st.error(f"Erro ao carregar shapefile: {e}")
         return gpd.GeoDataFrame()
 
 # =========================
-# Carregar dados com proteção
+# BLOCO 5 — Carregar dados com proteção
 # =========================
 df_path = "data/imoveis_georreferenciados_novembro.xlsx"
-shp_path = "data/Bairros.shp"
-maringa_path = "data/Maringa.shp"
-quadras_path = "data/Quadra.shp"
-lotes_path = "data/Lotes.shp"
+shp_path = "data/municipio_completo.shp"
 
 data_ok = True
 if not Path(df_path).exists():
@@ -198,294 +266,8 @@ if not data_ok:
     st.info("Ajuste os arquivos e recarregue a página.")
     st.stop()
 
-# --- Camadas extras (Maringá, Quadras, Lotes) — não bloqueiam o app se faltar ---
-gdf_maringa = load_shapefile_generico(maringa_path)
-gdf_quadras = load_shapefile_generico(quadras_path)
-gdf_lotes = load_shapefile_generico(lotes_path)
-
-if not gdf_quadras.empty:
-    gdf_quadras["geometry"] = gdf_quadras.geometry.simplify(0.00003, preserve_topology=True)
-if not gdf_lotes.empty:
-    gdf_lotes["geometry"] = gdf_lotes.geometry.simplify(0.00005, preserve_topology=True)
-
-# ============================================
-# Índice de Desalinhamento Alíquota x Mercado
-# ============================================
-import re
-import unicodedata
-
-@st.cache_data(show_spinner="Calculando índice de desalinhamento alíquota x mercado...")
-def calcular_indice_desalinhamento(_df, _gdf_bairros):
-    from rapidfuzz import process, fuzz
-
-    # --- Anexo VIII da lei — Relação 1 (0,6%) ---
-    RAW_RELACAO1 = """
-28 Aclimação, Jardim
-30 Bandeiras, Parque das
-20 Beth, Jardim
-43 Califórnia, Jardim
-19 Campo Belo, Jardim
-25 Cidade Alta, Conjunto Residencial
-46 Chácaras do Jardim Alvorada
-17 Chácaras da Vila Emília
-37 Dourado, Jardim
-17 Emília, Vila
-43 Estilos, Chácaras
-43 Everest, Jardim
-19 Guairacá, Jardim
-25 Honorato Vecchi, Residencial Pioneiro
-44 Inocente Vilanova Jr., Conjunto Residencial
-17 Itapuã, Jardim
-25 Ipanema, Jardim
-37 Lea Leal, Conjunto Habitacional
-36 Liberdade parte IV, Loteamento
-31 Licce, Jardim
-48 Laranjeiras, Parque
-21 Los Angeles, Jardim
-21 Lucianópolis, Jardim
-21 Mandacaru, Jardim
-21 Maravilha, Jardim
-19 Moradias Atenas
-19 Moradias Atenas Parte 2
-37 Morangueira, Chácaras
-21 Monte Carlo, Jardim
-36 Nova América, Jardim
-17 Novo Horizonte parte V, Jardim
-Oásis, Jardim
-25 Odwaldo Bueno Netto, Residencial Pioneiro
-30 Palmeiras, Parque das
-36 Parigot de Souza, Conjunto Residencial Governador
-37 Patrícia, Parque Residencial
-48 Planville, Conjunto Residencial
-30 Quebec, Parque Residencial
-36 Regente, Parque Residencial
-21 Santa Isabel, Vila
-44 Santa Rosa, Jardim
-25 São Paulo, Jardim
-21 Seminário, Jardim
-19 Três Lagoas, Jardim
-48 Tropical, Jardim
-37 Tupinambá, Jardim
-21 Vardelina, Vila
-44 Veredas, Jardim
-44 Veredas II, Jardim
-37 Virgínia, Vila
-30 Vitória, Jardim
-"""
-
-    # --- Anexo VIII da lei — Relação 2 (0,3%) ---
-    RAW_RELACAO2 = """
-39 Aeroporto, Chácaras
-38 Aeroporto parte I, Parque Residencial
-38 Aeroporto parte II, Parque Residencial
-38 Aeroporto parte III, Parque Residencial
-33 Albino Meneguetti, Conjunto Habitacional
-46 Alvorada parte III, Jardim
-46 Andrade, Jardim
-19 Andréa, Parque Residencial
-20 Ângelo Planas, Conjunto Residencial
-22 Atami, Jardim
-36 Atlanta, Jardim
-43 Aurora, Jardim
-33 Alto Alegre
-31 Avenida, Parque
-37 Batel, Loteamento
-53 Bela Vista, Loteamento Fechado
-53 Bela Vista II, Loteamento Fechado
-33 Belo Horizonte, Jardim
-38 Bertioga, Jardim
-37 Branca de Jesus Camargo Vieira, Conjunto Residencial
-37 Campos Elíseos, Jardim
-39 Catedral, Jardim
-53 Centenário, Condomínio Chácaras
-38 Céu Azul, Conjunto Habitacional
-39 Cidade Alta, Conjunto
-37 Colina Verde, Jardim
-49 Colombo
-Continental, Jardim
-30 Copacabana II, Jardim
-30 Copacabana, Residencial
-38 Del Prata, Conjunto Habitacional
-43 Do Carmo, Jardim
-33 Dona Angelina, Conjunto Residencial
-46 Ebenezer parte II, Loteamento
-46 Ebenezer, Loteamento
-33 Escalada, Residencial
-29 Esperança parte III, Vila
-38 Europa, Conjunto Habitacional
-34 Floriano, Distrito de
-33 Golden I, Jardim
-33 Golden II, Jardim
-34 Gonçalo Vieira dos Santos, Conjunto Habitacional
-37 Grajaú
-31 Grevíleas parte I, Parque
-31 Grevíleas parte III, Parque
-31 Grevíleas parte II, Parque
-36 Guaiapó, Conjunto Residencial
-30 Herman Moraes de Barros, Conjunto Habitacional
-43 Hortência parte I, Parque
-19 Hortência parte II, Parque
-36 Ibirapuera, Parque Residencial
-33 Iguatemi, Conjunto Habitacional
-33 Iguatemi, Distrito de
-33 Iguatemi, Residencial
-43 Indaiá, Jardim
-33 Índio, Jardim
-47 Industrial, Jardim
-25 Ipanema, Jardim
-47 Itaipu, Parque
-36 Itatiaia, Conjunto Habitacional
-37 João-de-Barro Champagnat, Habitacional
-39 João-de-Barro Cidade Alta I, Conjunto Habitacional
-39 João-de-Barro Cidade Alta II, Conjunto Habitacional
-39 João-de-Barro Cidade Canção, Conjunto Residencial
-25 João-de-Barro I, Conjunto Residencial
-34 João-de-Barro II, Conjunto Habitacional
-37 João-de-Barro Itaparica, Conjunto Habitacional
-38 João-de-Barro Porto Seguro I, Conjunto Residencial
-38 João-de-Barro Porto Seguro II, Conjunto Residencial
-19 João-de-Barro Thais, Conjunto Residencial
-33 João Paulo I, Conjunto Residencial
-34 José Israel Factori, Conjunto Residencial
-34 José Pires de Oliveira, Pioneiro
-31 Kakogawa, Jardim
-19 Kosmos, Jardim
-48 Laranjeiras, Parque das
-39 Madrid
-33 Marajoara, Jardim
-43 Montreal, Jardim
-34 Natalin Feltrin, Conjunto Habitacional
-43 Ney Braga, Conjunto Residencial Governador
-46 Novo Alvorada
-21 Núcleo Social Papa João XXIII
-19 Olímpico, Jardim
-19 Ouro Cola, Jardim
-25 Paraíso, Jardim
-43 Pássaros, Jardim dos
-37 Paulino C. Filho, Conjunto Residencial
-36 Paulista, Jardim
-36 Paulista II, Jardim
-36 Paulista III, Jardim
-37 Piatã, Loteamento, Jardim
-Portal das Torres
-33 Primavera, Jardim
-39 Pro-Lar, Jardim
-48 Rebouças, Jardim
-56 Recanto dos Guerreiros
-16 Recanto Kakogawa
-36 Requião I, Conjunto Habitacional
-46 Rodolpho Bernardi, Conjunto Residencial
-38 Sanenge III, Conjunto Habitacional
-43 Sanenge, Conjunto Habitacional
-46 Santa Clara, Jardim
-43 Santa Cruz, Jardim
-25 Santa Felicidade, Núcleo Habitacional
-53 Santa Maria, Loteamento Fechado
-53 Santa Marina, Loteamento Fechado
-33 Santa Terezinha, Conjunto
-49 São Domingos, Jardim
-46 Sumaré, Loteamento
-37 São Francisco, Jardim
-21 São Jorge, Jardim
-43 São Miguel, Jardim
-43 São Miguel 2.º Parte, Jardim
-33 São Pedro, Jardim
-39 São Silvestre, Jardim
-33 Serena, Vila
-39 Sol Nascente, Conjunto Habitacional
-25 Tarumã, Loteamento Parque
-25 Tarumã, Residencial
-37 Tuiuti, Parque Residencial
-20 Universo, Jardim
-21 Vardelina, Vila
-33 Villa Bella, Residencial
-53 Zona de Urbanização Específica
-"""
-
-    def extrai_nomes(raw_text):
-        nomes = []
-        for linha in raw_text.strip().split("\n"):
-            linha = linha.strip()
-            if not linha or linha.startswith("("):
-                continue
-            nomes.append(re.sub(r"^\d+\s+", "", linha))
-        return nomes
-
-    aliquota_por_nome_lei = {}
-    for nome in extrai_nomes(RAW_RELACAO1):
-        aliquota_por_nome_lei[nome] = 0.006
-    for nome in extrai_nomes(RAW_RELACAO2):
-        aliquota_por_nome_lei[nome] = 0.003
-
-    CLASSIFICADORES = [
-        "conjunto residencial governador", "parque residencial",
-        "residencial pioneiro", "loteamento fechado", "conjunto residencial",
-        "conjunto habitacional", "nucleo habitacional", "distrito de",
-        "zona de urbanizacao especifica", "parque das", "loteamento",
-        "residencial", "conjunto", "habitacional", "chacaras",
-        "gleba", "parque", "jardim", "vila", "nucleo",
-    ]
-
-    def normaliza(txt):
-        txt = str(txt).lower()
-        txt = ''.join(c for c in unicodedata.normalize('NFD', txt) if unicodedata.category(c) != 'Mn')
-        txt = re.sub(r"[^\w\s]", " ", txt)
-        return re.sub(r"\s+", " ", txt).strip()
-
-    def extrai_core(txt):
-        t = normaliza(txt)
-        for c in sorted(CLASSIFICADORES, key=len, reverse=True):
-            t = re.sub(rf"\b{re.escape(c)}\b", "", t)
-        t = re.sub(r"\s+", " ", t).strip()
-        return t if t else normaliza(txt)
-
-    nomes_shapefile_norm = sorted(_gdf_bairros["NOME"].dropna().apply(normaliza).unique().tolist())
-    core_shapefile = {nome: extrai_core(nome) for nome in nomes_shapefile_norm}
-
-    resultados = []
-    for nome_lei, aliquota in aliquota_por_nome_lei.items():
-        core_lei = extrai_core(nome_lei)
-        match, score, idx = process.extractOne(
-            core_lei, list(core_shapefile.values()), scorer=fuzz.partial_ratio
-        )
-        nome_correspondente = list(core_shapefile.keys())[idx]
-        resultados.append({"nome_norm": nome_correspondente, "aliquota": aliquota, "score": score})
-
-    df_match = pd.DataFrame(resultados)
-    LIMIAR = 85
-    aliquota_confirmada = df_match[df_match["score"] >= LIMIAR][["nome_norm", "aliquota"]]
-    aliquota_por_bairro_norm = aliquota_confirmada.groupby("nome_norm")["aliquota"].min().to_dict()
-
-    # --- Preço médio/m² por bairro (usando NOME normalizado) ---
-    gdf_imoveis_idx = gpd.GeoDataFrame(
-        _df, geometry=gpd.points_from_xy(_df["longitude"], _df["latitude"]), crs="EPSG:4326"
-    )
-    gdf_bairros_norm = _gdf_bairros[["geometry", "NOME"]].copy()
-    gdf_bairros_norm["NOME_norm"] = gdf_bairros_norm["NOME"].apply(normaliza)
-
-    gdf_join = gpd.sjoin(gdf_imoveis_idx, gdf_bairros_norm, how="left", predicate="within")
-    col_nome = "NOME_norm" if "NOME_norm" in gdf_join.columns else "NOME_norm_right"
-
-    resumo = gdf_join.groupby(col_nome).agg(
-        preco_m2_medio=("valor_m2", "mean"),
-        n_imoveis=(col_nome, "size"),
-    ).reset_index().rename(columns={col_nome: "NOME_norm"})
-
-    resumo = resumo[resumo["n_imoveis"] >= 5].copy()
-    resumo["classificado_pela_lei"] = resumo["NOME_norm"].isin(aliquota_por_bairro_norm.keys())
-    resumo["aliquota"] = resumo["NOME_norm"].map(aliquota_por_bairro_norm).fillna(0.01)
-    resumo["percentil_preco"] = resumo["preco_m2_medio"].rank(pct=True) * 100
-
-    centro_esperado = {0.003: 16.5, 0.006: 50.0, 0.01: 83.5}
-    resumo["centro_esperado"] = resumo["aliquota"].map(centro_esperado)
-    resumo["indice_desalinhamento"] = (resumo["percentil_preco"] - resumo["centro_esperado"]).round(1)
-
-    return resumo.set_index("NOME_norm").to_dict(orient="index")
-
-indice_desalinhamento_por_bairro = calcular_indice_desalinhamento(df, gdf_bairros)
-
 # =========================
-# Paleta e faixas para o mapa coroplético
+# BLOCO 6 — Paleta e faixas para o mapa coroplético
 # =========================
 cores_hex = ['#eff8ff', '#a9d3f5', '#5ba3e0', '#2477c2', '#0d54a0',
              '#0a3d7a', '#072a56', '#041a38', '#00060f']
@@ -536,7 +318,7 @@ faixas_dict = {
 }
 
 # =========================
-# Filtros e coluna alvo
+# BLOCO 7 — Filtros e coluna alvo
 # =========================
 estatistica_norm = "preco_medio_total"
 
@@ -577,12 +359,66 @@ elif "condomínios" in tipo_estatistica.lower():
         df_filtrado = df_filtrado[df_filtrado["valor_m2"].notnull()]
     estatistica_norm = "preco_medio_por_m2_condominios" if "m²" in tipo_estatistica else "preco_medio_condominios"
 
-# Coluna auxiliar com nome fixo, usada nos tooltips do pydeck
+# Coluna auxiliar com nome fixo, usada nos mapas (tooltip/cartão de detalhes)
 df_filtrado = df_filtrado.copy()
 df_filtrado["valor_tooltip"] = df_filtrado[coluna_valor]
+sufixo_unid = "/m²" if coluna_valor == "valor_m2" else ""
 
 # =========================
-# Mapa (pydeck / deck.gl)
+# BLOCO 7B — Funções de cálculo (com cache)
+# O join espacial (imóvel → bairro) e a montagem do GeoJSON eram refeitos a
+# cada clique. Agora ficam em cache: só recalculam quando a estatística muda.
+# =========================
+def cor_por_faixa(valor, bins):
+    if pd.isna(valor) or valor <= 0:
+        return [43, 43, 43, 120]
+    for i in range(len(bins) - 1):
+        if bins[i] <= valor <= bins[i + 1]:
+            return cores_rgba[i]
+    return cores_rgba[-1]
+
+
+@st.cache_data(show_spinner=False)
+def agregar_por_bairro(df_in, coluna, _gdf_bairros):
+    """Média, mínimo, máximo, quantidade e variação vs. município, por bairro."""
+    gdf_imoveis = gpd.GeoDataFrame(
+        df_in,
+        geometry=gpd.points_from_xy(df_in["longitude"], df_in["latitude"]),
+        crs="EPSG:4326",
+    )
+    gdf_join = gpd.sjoin(
+        gdf_imoveis,
+        _gdf_bairros[["geometry", "NOME"]],
+        how="left",
+        predicate="within",
+    )
+    stats = gdf_join.groupby("NOME")[coluna].agg(
+        qtd="count", media="mean", minimo="min", maximo="max"
+    ).reset_index()
+    media_municipio = df_in[coluna].mean()
+    stats["variacao"] = ((stats["media"] - media_municipio) / media_municipio) * 100
+    return stats.round(2)
+
+
+@st.cache_data(show_spinner=False)
+def montar_geojson_coropletico(stats, _gdf_bairros, bins, sufixo):
+    gdf_plot = _gdf_bairros[["geometry", "NOME"]].merge(stats, on="NOME", how="left")
+    gdf_plot["fill_color"] = gdf_plot["media"].apply(lambda v: cor_por_faixa(v, bins))
+    gdf_plot["media_fmt"] = gdf_plot["media"].apply(lambda v: fmt_brl(v, sufixo=sufixo))
+    gdf_plot["minimo_fmt"] = gdf_plot["minimo"].apply(lambda v: fmt_brl(v, sufixo=sufixo))
+    gdf_plot["maximo_fmt"] = gdf_plot["maximo"].apply(lambda v: fmt_brl(v, sufixo=sufixo))
+    gdf_plot["variacao_fmt"] = gdf_plot["variacao"].apply(fmt_pct)
+    gdf_plot["qtd_fmt"] = gdf_plot["qtd"].apply(fmt_int)
+    return json.loads(
+        gdf_plot[[
+            "geometry", "NOME", "media_fmt", "minimo_fmt", "maximo_fmt",
+            "variacao_fmt", "qtd_fmt", "fill_color"
+        ]].to_json()
+    )
+
+
+# =========================
+# BLOCO 8 — Mapa (pydeck / deck.gl)
 # =========================
 with col_map:
     st.markdown("### 🗺️ Mapa")
@@ -597,144 +433,105 @@ with col_map:
     bins = faixas_dict.get(estatistica_norm, faixas_base['preco'])
     layers = []
     tooltip = None
+    layer_id = None  # camada que responde ao toque/clique (alimenta o cartão de detalhes)
 
     if tipo_mapa == "Coroplético":
-        gdf_imoveis = gpd.GeoDataFrame(
-            df_filtrado,
-            geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
-            crs="EPSG:4326",
+        df_stats = agregar_por_bairro(
+            df_filtrado[["latitude", "longitude", coluna_valor]], coluna_valor, gdf_bairros
         )
-        gdf_join = gpd.sjoin(
-            gdf_imoveis,
-            gdf_bairros[["geometry", "NOME"]],
-            how="left",
-            predicate="within"
-        )
+        geojson = montar_geojson_coropletico(df_stats, gdf_bairros, tuple(bins), sufixo_unid)
 
-        df_stats = gdf_join.groupby("NOME")[coluna_valor].agg(
-            media="mean", minimo="min", maximo="max"
-        ).reset_index()
-        media_municipio = df_filtrado[coluna_valor].mean()
-        df_stats["variacao"] = ((df_stats["media"] - media_municipio) / media_municipio) * 100
-        df_stats = df_stats.round(2)
-
-        gdf_plot = gdf_bairros.merge(df_stats, left_on="NOME", right_on="NOME", how="left")
-
-        def cor_por_faixa(valor):
-            if pd.isna(valor) or valor <= 0:
-                return [43, 43, 43, 120]
-            for i in range(len(bins) - 1):
-                if bins[i] <= valor <= bins[i + 1]:
-                    return cores_rgba[i]
-            return cores_rgba[-1]
-
-        gdf_plot["fill_color"] = gdf_plot["media"].apply(cor_por_faixa)
-
-        def fmt_moeda(v):
-            return f"R$ {v:,.2f}" if pd.notna(v) else "sem dados"
-
-        gdf_plot["media_fmt"] = gdf_plot["media"].apply(fmt_moeda)
-        gdf_plot["minimo_fmt"] = gdf_plot["minimo"].apply(fmt_moeda)
-        gdf_plot["maximo_fmt"] = gdf_plot["maximo"].apply(fmt_moeda)
-        gdf_plot["variacao_fmt"] = gdf_plot["variacao"].apply(
-            lambda v: f"{v:.2f}%" if pd.notna(v) else "sem dados"
-        )
-
-        # --- NOVO: Alíquota e Índice de Desalinhamento no tooltip ---
-        def normaliza_local(txt):
-            txt = str(txt).lower()
-            txt = ''.join(c for c in unicodedata.normalize('NFD', txt) if unicodedata.category(c) != 'Mn')
-            txt = re.sub(r"[^\w\s]", " ", txt)
-            return re.sub(r"\s+", " ", txt).strip()
-
-        gdf_plot["_nome_norm"] = gdf_plot["NOME"].apply(normaliza_local)
-
-        def busca_indice(nome_norm):
-            info = indice_desalinhamento_por_bairro.get(nome_norm)
-            if info is None:
-                return "sem classificação", "—"
-            aliquota_fmt = f"{info['aliquota']*100:.1f}%"
-            indice_fmt = f"{info['indice_desalinhamento']:+.1f}"
-            return aliquota_fmt, indice_fmt
-
-        gdf_plot[["aliquota_fmt", "indice_desalinhamento_fmt"]] = gdf_plot["_nome_norm"].apply(
-            lambda n: pd.Series(busca_indice(n))
-        )
-
-        geojson = json.loads(
-            gdf_plot[[
-                "geometry", "NOME", "media_fmt", "minimo_fmt", "maximo_fmt", "variacao_fmt",
-                "aliquota_fmt", "indice_desalinhamento_fmt", "fill_color"
-            ]].to_json()
-        )
-
+        layer_id = "coropletico"
         layers.append(
             pdk.Layer(
                 "GeoJsonLayer",
                 geojson,
+                id=layer_id,
                 stroked=True,
                 filled=True,
                 get_fill_color="properties.fill_color",
                 get_line_color=[58, 58, 58],
                 line_width_min_pixels=1,
                 pickable=True,
+                auto_highlight=True,
             )
         )
+        # CORREÇÃO DO TOOLTIP: em camadas GeoJSON os campos ficam dentro de
+        # "properties", então o caminho correto é {properties.CAMPO}.
         tooltip = {
             "html": (
-                "<b>{NOME}</b><br/>"
-                "Média: {media_fmt}<br/>"
-                "Mínimo: {minimo_fmt}<br/>"
-                "Máximo: {maximo_fmt}<br/>"
-                "Variação vs. município: {variacao_fmt}<br/>"
-                "<hr style='margin:4px 0;'/>"
-                "Alíquota IPTU: {aliquota_fmt}<br/>"
-                "Índice de desalinhamento: {indice_desalinhamento_fmt}"
-            )
+                "<b>{properties.NOME}</b><br/>"
+                "Média: {properties.media_fmt}<br/>"
+                "Mínimo: {properties.minimo_fmt}<br/>"
+                "Máximo: {properties.maximo_fmt}<br/>"
+                "Variação vs. município: {properties.variacao_fmt}"
+            ),
+            "style": {"backgroundColor": "#111111", "color": "white", "fontSize": "13px"},
         }
 
     elif tipo_mapa == "Pontos":
+        # Envia ao navegador só as colunas necessárias (antes ia a planilha inteira)
+        pontos = df_filtrado[["longitude", "latitude", "Tipo", "valor_tooltip"]].copy()
+        pontos["valor_fmt"] = pontos["valor_tooltip"].apply(lambda v: fmt_brl(v, sufixo=sufixo_unid))
+        layer_id = "pontos"
         layers.append(
             pdk.Layer(
                 "ScatterplotLayer",
-                df_filtrado,
+                pontos,
+                id=layer_id,
                 get_position=["longitude", "latitude"],
                 get_radius=35,
                 get_fill_color=[0, 206, 209, 160],
                 pickable=True,
             )
         )
-        tooltip = {"html": "{Tipo} — R$ {valor_tooltip}"}
+        tooltip = {
+            "html": "{Tipo} — {valor_fmt}",
+            "style": {"backgroundColor": "#111111", "color": "white", "fontSize": "13px"},
+        }
 
     elif tipo_mapa == "Densidade 3D (hexbin)":
-        H3_RESOLUCAO = 9
+        # Agregação própria em células H3 (em vez da agregação nativa do
+        # deck.gl, que se mostrou pouco confiável nesse ambiente). Isso
+        # garante o MESMO visual de "barra" tanto pra quantidade quanto
+        # pro valor médio.
+        H3_RESOLUCAO = 9  # hexágonos maiores/mais visíveis que antes
+
         dados_hex = df_filtrado[["latitude", "longitude", "valor_tooltip"]].dropna().copy()
         dados_hex["hex"] = [
             h3.latlng_to_cell(lat, lon, H3_RESOLUCAO)
             for lat, lon in zip(dados_hex["latitude"], dados_hex["longitude"])
         ]
+
         agg_hex = dados_hex.groupby("hex").agg(
             qtd=("valor_tooltip", "size"),
             media=("valor_tooltip", "mean"),
         ).reset_index()
+
         coluna_metrica = "qtd" if metrica_hexbin == "Quantidade de imóveis" else "media"
         vmin_hex = agg_hex[coluna_metrica].min()
         vmax_hex = agg_hex[coluna_metrica].max()
+
         if pd.notna(vmax_hex) and vmax_hex > vmin_hex:
             agg_hex["elevation"] = (agg_hex[coluna_metrica] - vmin_hex) / (vmax_hex - vmin_hex) * 3000 + 80
         else:
             agg_hex["elevation"] = 400
+
         agg_hex["fill_color"] = agg_hex[coluna_metrica].apply(
             lambda v: valor_para_cor_teal(v, vmin_hex, vmax_hex)
         )
+
         if metrica_hexbin == "Quantidade de imóveis":
-            agg_hex["label"] = agg_hex["qtd"].apply(lambda v: f"{int(v)} imóveis")
+            agg_hex["label"] = agg_hex["qtd"].apply(lambda v: f"{fmt_int(v)} imóveis")
         else:
-            agg_hex["label"] = agg_hex["media"].apply(lambda v: f"R$ {v:,.2f}")
+            agg_hex["label"] = agg_hex["media"].apply(lambda v: fmt_brl(v, sufixo=sufixo_unid))
+
+        layer_id = "hexagonos"
         layers.append(
             pdk.Layer(
                 "H3HexagonLayer",
                 agg_hex,
+                id=layer_id,
                 get_hexagon="hex",
                 get_fill_color="fill_color",
                 get_elevation="elevation",
@@ -743,9 +540,20 @@ with col_map:
                 pickable=True,
             )
         )
-        tooltip = {"html": "{label}"}
+        tooltip = {
+            "html": "{label}",
+            "style": {"backgroundColor": "#111111", "color": "white", "fontSize": "13px"},
+        }
 
     elif tipo_mapa == "Edifícios 3D (OSM)":
+        # Contornos de prédios/casas extrudados por altura estimada (tag
+        # 'height' quando existe; senão, andares x 3m; senão, um padrão).
+        # Sem Blender — mesma técnica dos showcases oficiais do deck.gl.
+        #
+        # Lê primeiro de um arquivo local (data/edificios_maringa.geojson),
+        # gerado uma vez com o script baixar_predios.py. Isso evita depender
+        # de uma chamada ao vivo pro Overpass API dentro do servidor
+        # hospedado — que se mostrou instável/bloqueada nesse ambiente.
         EDIFICIOS_LOCAL_PATH = Path("data/edificios_maringa.geojson")
 
         def estimar_altura(row):
@@ -761,7 +569,7 @@ with col_map:
                     return float(andares) * 3.0
                 except ValueError:
                     pass
-            return 9.0
+            return 9.0  # padrão: ~3 andares, quando não há dado na base
 
         @st.cache_data(show_spinner="Carregando edifícios...")
         def carregar_predios_local(path_str):
@@ -772,6 +580,11 @@ with col_map:
 
         @st.cache_data(show_spinner="Buscando edifícios no OpenStreetMap (só na primeira vez)...")
         def carregar_predios_osm_ao_vivo(_gdf_bairros_bounds):
+            # Imports aqui dentro: osmnx é pesado e só é preciso neste caminho.
+            # Se quiser usar a busca ao vivo, adicione "osmnx" ao requirements.txt.
+            import osmnx as ox
+            from shapely.geometry import box
+
             minx, miny, maxx, maxy = _gdf_bairros_bounds
             area = box(minx, miny, maxx, maxy)
             gdf_predios = ox.features_from_polygon(area, tags={"building": True})
@@ -804,10 +617,12 @@ with col_map:
                     gdf_predios[["geometry", "altura", "altura_fmt", "fill_color"]].to_json()
                 )
 
+                layer_id = "edificios"
                 layers.append(
                     pdk.Layer(
                         "GeoJsonLayer",
                         geojson_predios,
+                        id=layer_id,
                         stroked=False,
                         filled=True,
                         extruded=True,
@@ -816,7 +631,10 @@ with col_map:
                         pickable=True,
                     )
                 )
-                tooltip = {"html": "Altura estimada: {altura_fmt}"}
+                tooltip = {
+                    "html": "Altura estimada: {properties.altura_fmt}",
+                    "style": {"backgroundColor": "#111111", "color": "white", "fontSize": "13px"},
+                }
         except Exception as e:
             st.warning(
                 "Não foi possível carregar os edifícios do OpenStreetMap agora "
@@ -824,36 +642,14 @@ with col_map:
             )
 
     elif tipo_mapa == "Calor":
+        dados_calor = df_filtrado[["longitude", "latitude", "valor_tooltip"]].dropna()
         layers.append(
             pdk.Layer(
                 "HeatmapLayer",
-                df_filtrado,
+                dados_calor,
                 get_position=["longitude", "latitude"],
                 get_weight="valor_tooltip",
                 radius_pixels=40,
-            )
-        )
-
-    if mostrar_maringa and not gdf_maringa.empty:
-        layers.append(
-            pdk.Layer(
-                "GeoJsonLayer", json.loads(gdf_maringa.to_json()),
-                stroked=True, filled=False, get_line_color=[255, 255, 255], line_width_min_pixels=2,
-            )
-        )
-    if mostrar_quadras and not gdf_quadras.empty:
-        layers.append(
-            pdk.Layer(
-                "GeoJsonLayer", json.loads(gdf_quadras.to_json()),
-                stroked=True, filled=False, get_line_color=[255, 165, 0], line_width_min_pixels=1,
-            )
-        )
-    if mostrar_lotes and not gdf_lotes.empty:
-        layers.append(
-            pdk.Layer(
-                "GeoJsonLayer", json.loads(gdf_lotes.to_json()),
-                stroked=True, filled=True, get_fill_color=[200, 30, 30, 60],
-                get_line_color=[200, 30, 30], line_width_min_pixels=0.5,
             )
         )
 
@@ -864,29 +660,65 @@ with col_map:
         map_style="dark",
         tooltip=tooltip,
     )
-    st.pydeck_chart(deck, height=480)
+
+    # on_select: ao tocar/clicar em um item do mapa, o app recebe o objeto e mostra
+    # o cartão de detalhes abaixo (funciona no celular, onde não existe "hover").
+    # Se a versão do Streamlit for antiga e não suportar, cai no mapa simples.
+    try:
+        evento_mapa = st.pydeck_chart(
+            deck,
+            height=480,
+            on_select="rerun",
+            selection_mode="single-object",
+            key="mapa_principal",
+        )
+    except TypeError:
+        st.pydeck_chart(deck, height=480)
+        evento_mapa = None
 
     # =========================
-    # Estatísticas resumidas, pequenas, logo abaixo do mapa
-    # (só quantidade de imóveis e valor médio, como pedido)
+    # BLOCO 9 — Cartão de detalhes + estatísticas resumidas abaixo do mapa
     # =========================
+    objeto = objeto_selecionado(evento_mapa, layer_id)
+    if objeto is not None:
+        props = objeto.get("properties", objeto)
+        if tipo_mapa == "Coroplético":
+            card_detalhe(
+                props.get("NOME") or "Bairro",
+                [
+                    ("Média", props.get("media_fmt")),
+                    ("Imóveis", props.get("qtd_fmt")),
+                    ("Mínimo", props.get("minimo_fmt")),
+                    ("Máximo", props.get("maximo_fmt")),
+                    ("Variação vs. município", props.get("variacao_fmt")),
+                ],
+            )
+        elif tipo_mapa == "Pontos":
+            card_detalhe(props.get("Tipo") or "Imóvel", [("Valor", props.get("valor_fmt"))])
+        elif tipo_mapa == "Densidade 3D (hexbin)":
+            card_detalhe("Célula do mapa", [(metrica_hexbin, props.get("label"))])
+        elif tipo_mapa == "Edifícios 3D (OSM)":
+            card_detalhe("Edifício", [("Altura", props.get("altura_fmt"))])
+    elif layer_id is not None:
+        st.caption("👆 Toque (ou clique) em um item do mapa para ver os detalhes.")
+
     num_imoveis = len(df_filtrado)
     media_imoveis = df_filtrado[coluna_valor].mean() if num_imoveis else 0
 
     stat1, stat2 = st.columns(2, gap="small")
     with stat1:
         st.markdown(
-            f'<div class="stat-pequena">🔢 Imóveis encontrados<br><b>{num_imoveis}</b></div>',
+            f'<div class="stat-pequena">🔢 Imóveis encontrados<br><b>{fmt_int(num_imoveis)}</b></div>',
             unsafe_allow_html=True
         )
     with stat2:
         st.markdown(
-            f'<div class="stat-pequena">📈 Valor médio<br><b>R$ {media_imoveis:,.2f}</b></div>',
+            f'<div class="stat-pequena">📈 Valor médio<br><b>{fmt_brl(media_imoveis, sufixo=sufixo_unid)}</b></div>',
             unsafe_allow_html=True
         )
 
 # =========================
-# Gráfico (Plotly — interativo, com hover)
+# BLOCO 10 — Gráfico (Plotly — interativo, com hover)
 # =========================
 with col_chart:
     st.markdown("### 📉 Gráfico")
@@ -901,23 +733,15 @@ with col_chart:
         fig.update_layout(template="plotly_dark", height=420, yaxis_title="Qtd. de imóveis")
 
     elif grafico_tipo == "Barras por bairro":
-        gdf_imoveis = gpd.GeoDataFrame(
-            df_filtrado,
-            geometry=gpd.points_from_xy(df_filtrado["longitude"], df_filtrado["latitude"]),
-            crs="EPSG:4326"
-        )
-        gdf_join = gpd.sjoin(
-            gdf_imoveis,
-            gdf_bairros[["geometry", "NOME"]],
-            how="left",
-            predicate="within"
+        # Reaproveita a agregação em cache (a mesma usada pelo mapa coroplético)
+        stats_barras = agregar_por_bairro(
+            df_filtrado[["latitude", "longitude", coluna_valor]], coluna_valor, gdf_bairros
         )
         media_bairro = (
-            gdf_join.groupby("NOME")[coluna_valor]
-            .mean()
-            .sort_values(ascending=True)
+            stats_barras[["NOME", "media"]]
+            .sort_values("media", ascending=True)
             .tail(15)
-            .reset_index()
+            .rename(columns={"media": coluna_valor})
         )
         fig = px.bar(
             media_bairro, x=coluna_valor, y="NOME", orientation="h",
@@ -939,7 +763,7 @@ with col_chart:
     st.plotly_chart(fig, use_container_width=True)
 
 # =========================
-# Série histórica IPTU/ITBI + previsão ARIMA
+# BLOCO 11 — Série histórica IPTU/ITBI + previsão ARIMA
 # =========================
 st.markdown("---")
 st.markdown("### 📈 Histórico e Previsão — IPTU e ITBI")
@@ -992,13 +816,20 @@ def prever_arima(df, coluna, steps=2, reajuste=None):
     return pd.DataFrame({"ano": anos_future, f"{coluna}_prev": valores}), ultimo_ano_real
 
 
+@st.cache_data(show_spinner=True)
+def calcular_previsoes(path):
+    """Mesma lógica de antes; só fica em cache para não refazer o ARIMA a cada clique."""
+    df_s = carregar_serie_historica(path)
+    prev_i, ult_i = prever_arima(df_s, "IPTU", reajuste=REAJUSTE_ALIQUOTA_IPTU)
+    prev_b, ult_b = prever_arima(df_s, "ITBI")
+    return df_s, prev_i, ult_i, prev_b, ult_b
+
+
 if not Path(SERIE_HIST_PATH).exists():
     st.warning(f"Arquivo de série histórica não encontrado: {SERIE_HIST_PATH}")
 else:
     try:
-        df_serie = carregar_serie_historica(SERIE_HIST_PATH)
-        prev_iptu, ultimo_ano_iptu = prever_arima(df_serie, "IPTU", reajuste=REAJUSTE_ALIQUOTA_IPTU)
-        prev_itbi, ultimo_ano_itbi = prever_arima(df_serie, "ITBI")
+        df_serie, prev_iptu, ultimo_ano_iptu, prev_itbi, ultimo_ano_itbi = calcular_previsoes(SERIE_HIST_PATH)
 
         def conectar_previsao(df_prev, coluna_prev, coluna_hist, tipo_label):
             ultimo_hist = (
@@ -1030,6 +861,7 @@ else:
             yaxis=dict(showgrid=True, gridcolor="#333333", gridwidth=1),
             plot_bgcolor="#0e0e0e",
         )
+        # Destaca a zona de previsão com um fundo levemente diferente (cinza).
         inicio_previsao = min(ultimo_ano_iptu, ultimo_ano_itbi)
         fim_previsao = int(df_plot_serie["ano"].max())
         fig_temp.add_vrect(
@@ -1074,334 +906,6 @@ else:
             previsao_html += "</ul></div>"
             st.markdown(previsao_html, unsafe_allow_html=True)
 
-        # =========================
-        # NOVO: Índice de Descolamento IPTU x ITBI
-        # =========================
-        st.markdown("---")
-        st.markdown("### 🧭 Índice de Descolamento IPTU x ITBI")
-        st.caption(
-            "Compara o ritmo de crescimento da arrecadação de IPTU (base administrativa, "
-            "a Planta Genérica de Valores) com o do ITBI (base de mercado, valor real de "
-            "transação). Quando o ITBI cresce mais rápido que o IPTU, é sinal de que a base "
-            "tributária está ficando defasada em relação ao mercado."
-        )
-
-        df_razao = df_serie.dropna(subset=["IPTU", "ITBI"]).copy()
-        df_razao = df_razao[df_razao["IPTU"] > 0]
-        df_razao["razao_itbi_iptu"] = df_razao["ITBI"] / df_razao["IPTU"]
-
-        fig_razao = px.line(
-            df_razao, x="ano", y="razao_itbi_iptu",
-            title="Razão ITBI / IPTU ao longo do tempo",
-            markers=True,
-        )
-        fig_razao.update_layout(
-            template="plotly_dark",
-            height=350,
-            xaxis=dict(showgrid=True, gridcolor="#333333", gridwidth=1),
-            yaxis=dict(showgrid=True, gridcolor="#333333", gridwidth=1, title="ITBI / IPTU"),
-            plot_bgcolor="#0e0e0e",
-        )
-
-        # --- Taxa de crescimento anualizada (CAGR) de cada tributo, no período disponível ---
-        def cagr(df, coluna):
-            serie = df[["ano", coluna]].dropna(subset=[coluna]).sort_values("ano")
-            if len(serie) < 2:
-                return None
-            ano_ini, ano_fim = serie["ano"].iloc[0], serie["ano"].iloc[-1]
-            val_ini, val_fim = serie[coluna].iloc[0], serie[coluna].iloc[-1]
-            n_anos = ano_fim - ano_ini
-            if n_anos <= 0 or val_ini <= 0:
-                return None
-            return (val_fim / val_ini) ** (1 / n_anos) - 1
-
-        cagr_iptu = cagr(df_serie, "IPTU")
-        cagr_itbi = cagr(df_serie, "ITBI")
-
-        col_razao, col_cagr = st.columns([7, 3], gap="medium")
-        with col_razao:
-            st.plotly_chart(fig_razao, use_container_width=True)
-        with col_cagr:
-            st.metric("Crescimento anual médio — IPTU", f"{cagr_iptu*100:.1f}%" if cagr_iptu is not None else "—")
-            st.metric("Crescimento anual médio — ITBI", f"{cagr_itbi*100:.1f}%" if cagr_itbi is not None else "—")
-            if cagr_iptu is not None and cagr_itbi is not None:
-                diferenca = (cagr_itbi - cagr_iptu) * 100
-                if diferenca > 0.5:
-                    st.warning(f"ITBI cresce {diferenca:.1f} p.p./ano mais rápido que o IPTU — indício de defasagem crescente.")
-                elif diferenca < -0.5:
-                    st.info(f"IPTU cresce {-diferenca:.1f} p.p./ano mais rápido que o ITBI — a base tributária está acompanhando ou superando o mercado.")
-                else:
-                    st.success("IPTU e ITBI crescem em ritmo semelhante — sem sinal de descolamento agregado.")
-
     except Exception as e:
         st.error(f"Não foi possível calcular a previsão IPTU/ITBI: {e}")
 
-# =========================
-# Botão de Relatório Técnico (Word)
-# =========================
-st.markdown("---")
-st.markdown("## 📄 Relatório Técnico")
-st.caption(
-    "Gera um documento Word com o diagnóstico completo: metodologia, "
-    "Índice de Desalinhamento Alíquota × Mercado e Índice de Descolamento IPTU × ITBI, "
-    "com os dados calculados nesta sessão."
-)
-
-from docx import Document
-from docx.shared import Pt, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_TABLE_ALIGNMENT
-from docx.oxml.ns import qn
-from docx.oxml import OxmlElement
-import datetime
-import io
-
-COR_PRIMARIA_DOC = RGBColor(0x0B, 0x3D, 0x2E)
-COR_POSITIVA_DOC = RGBColor(0x1B, 0x7A, 0x43)
-COR_NEGATIVA_DOC = RGBColor(0xB3, 0x26, 0x1E)
-COR_CINZA_DOC = RGBColor(0x55, 0x55, 0x55)
-
-
-def _sombreia_celula(cell, cor_hex):
-    tcPr = cell._tc.get_or_add_tcPr()
-    shd = OxmlElement('w:shd')
-    shd.set(qn('w:fill'), cor_hex)
-    tcPr.append(shd)
-
-
-def _formata_pct(v):
-    return f"{v*100:.1f}%".replace(".", ",")
-
-
-@st.cache_data(show_spinner=False)
-def _metadados_correspondencia_lei():
-    """Recalcula só as contagens gerais da correspondência lei x shapefile (leve, cacheado)."""
-    total_lei = len(aliquota_por_nome_lei)
-    total_confirmados = len(aliquota_por_bairro)
-    return total_lei, total_confirmados
-
-
-def gerar_relatorio_docx(indice_por_bairro, df_serie_hist=None, cagr_iptu_val=None, cagr_itbi_val=None):
-    df_indice = pd.DataFrame.from_dict(indice_por_bairro, orient="index").reset_index()
-    df_indice = df_indice.rename(columns={"index": "NOME"})
-    classificados_rel = df_indice[df_indice["classificado_pela_lei"] == True].copy()
-
-    doc = Document()
-
-    # --- Capa ---
-    for _ in range(6):
-        doc.add_paragraph()
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = p.add_run("DIAGNÓSTICO ESPACIAL DA ARRECADAÇÃO MUNICIPAL")
-    run.bold = True
-    run.font.size = Pt(22)
-    run.font.color.rgb = COR_PRIMARIA_DOC
-
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = p.add_run("Índice de Desalinhamento Alíquota × Mercado e Descolamento IPTU × ITBI")
-    run.font.size = Pt(13)
-    run.font.color.rgb = COR_CINZA_DOC
-
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = p.add_run("Município de Maringá — PR")
-    run.font.size = Pt(12)
-    run.font.color.rgb = COR_CINZA_DOC
-
-    for _ in range(4):
-        doc.add_paragraph()
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.add_run("Documento técnico preliminar — versão piloto").italic = True
-
-    for _ in range(6):
-        doc.add_paragraph()
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.add_run(f"Gerado automaticamente em {datetime.date.today().strftime('%d/%m/%Y')}")
-
-    doc.add_page_break()
-
-    # --- 1. Sumário Executivo ---
-    doc.add_heading("1. Sumário Executivo", level=1)
-    doc.add_paragraph(
-        "Este relatório apresenta os resultados de um diagnóstico técnico da arrecadação imobiliária "
-        "do município de Maringá, cruzando dados de mercado (oferta de imóveis georreferenciada) com "
-        "a base tributária vigente (Planta Genérica de Valores e alíquotas de IPTU definidas pela "
-        "Lei Complementar 1.506/2026)."
-    )
-    doc.add_paragraph(
-        "Dois achados centrais estruturam este documento: (1) um Índice de Desalinhamento Alíquota × "
-        "Mercado, comparando a posição de preço de mercado de cada bairro à alíquota de IPTU aplicada; "
-        "e (2) um Índice de Descolamento IPTU × ITBI, que mede se a arrecadação predial acompanha, ao "
-        "longo do tempo, o ritmo de crescimento das transações reais de mercado."
-    )
-
-    doc.add_heading("Principais números", level=2)
-    total_lei, total_confirmados = _metadados_correspondencia_lei()
-    n_com_amostra = len(classificados_rel)
-
-    bullets = [
-        f"{total_lei} zonas/loteamentos identificados na Lei Complementar 1.506/2026 com alíquota reduzida (0,3% ou 0,6%).",
-        f"{total_confirmados} bairros do cadastro geográfico correspondidos com confiança técnica às faixas de alíquota da lei.",
-        f"{n_com_amostra} bairros com amostra de mercado suficiente para comparação estatística direta.",
-    ]
-    if not classificados_rel.empty:
-        top1 = classificados_rel.sort_values("indice_desalinhamento", ascending=False).iloc[0]
-        bullets.append(
-            f"O caso de maior desalinhamento identificado — {top1['NOME'].title()} — está no percentil "
-            f"{top1['percentil_preco']:.1f} de preço de mercado, tributado em alíquota de "
-            f"{_formata_pct(top1['aliquota'])} (índice: +{top1['indice_desalinhamento']:.1f})."
-        )
-    for b in bullets:
-        doc.add_paragraph(b, style="List Bullet")
-
-    # --- 2. Metodologia ---
-    doc.add_heading("2. Metodologia", level=1)
-    doc.add_heading("2.1 Fontes de dados", level=2)
-    for b in [
-        "Base de oferta de imóveis residenciais georreferenciados de Maringá.",
-        "Shapefile oficial de bairros do município (cadastro geográfico municipal).",
-        "Lei Complementar 1.506/2026 (Maringá/PR) — Planta Genérica de Valores e Anexo VIII.",
-        "Série histórica de arrecadação municipal de IPTU e ITBI.",
-    ]:
-        doc.add_paragraph(b, style="List Bullet")
-
-    doc.add_heading("2.2 Correspondência entre a nomenclatura da lei e o cadastro geográfico", level=2)
-    doc.add_paragraph(
-        "A correspondência entre os nomes de zona/loteamento da lei e os nomes de bairro do cadastro "
-        "geográfico foi realizada por algoritmo de similaridade textual (fuzzy matching, contenção de "
-        "substring), com limiar de aceitação automática de 85%."
-    )
-
-    doc.add_heading("2.3 Índice de Desalinhamento Alíquota × Mercado", level=2)
-    doc.add_paragraph(
-        "Para cada bairro com amostra suficiente, calculou-se o percentil de preço médio por m² na "
-        "distribuição municipal, comparado à posição esperada dado o nível de alíquota (0,3% → "
-        "percentil ~16,5; 0,6% → ~50,0; 1,0% → ~83,5). O índice é a diferença entre o percentil real "
-        "e o esperado."
-    )
-    doc.add_paragraph(
-        "Nota metodológica: o índice atual é ordinal (posição relativa de mercado), não uma comparação "
-        "direta em R$ contra o valor venal individual da Planta Genérica de Valores. A evolução para uma "
-        "comparação cardinal depende de acesso a dados administrativos do cadastro imobiliário municipal "
-        "(tabela de valores por logradouro, padrão construtivo por imóvel)."
-    )
-
-    doc.add_page_break()
-
-    # --- 3. Achado 1 ---
-    doc.add_heading("3. Achado 1 — Índice de Desalinhamento Alíquota × Mercado", level=1)
-    if classificados_rel.empty:
-        doc.add_paragraph("Nenhum bairro com amostra suficiente disponível nesta execução.")
-    else:
-        doc.add_paragraph(
-            f"A tabela a seguir apresenta os bairros com maior sinal de desalinhamento positivo, entre "
-            f"os {n_com_amostra} bairros com amostra estatística suficiente."
-        )
-        top20 = classificados_rel.sort_values("indice_desalinhamento", ascending=False).head(20)
-
-        table = doc.add_table(rows=1, cols=5)
-        table.alignment = WD_TABLE_ALIGNMENT.CENTER
-        table.style = "Light Grid Accent 1"
-        hdr = table.rows[0].cells
-        for i, txt in enumerate(["Bairro", "Alíquota", "N° imóveis", "Percentil", "Índice"]):
-            hdr[i].text = txt
-            hdr[i].paragraphs[0].runs[0].bold = True
-            hdr[i].paragraphs[0].runs[0].font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
-            _sombreia_celula(hdr[i], "0B3D2E")
-
-        for _, row in top20.iterrows():
-            cells = table.add_row().cells
-            cells[0].text = str(row["NOME"]).title()
-            cells[1].text = _formata_pct(row["aliquota"])
-            cells[2].text = str(int(row["n_imoveis"]))
-            cells[3].text = f"{row['percentil_preco']:.1f}"
-            run = cells[4].paragraphs[0].add_run(f"{row['indice_desalinhamento']:+.1f}")
-            run.font.color.rgb = COR_POSITIVA_DOC if row["indice_desalinhamento"] >= 0 else COR_NEGATIVA_DOC
-            run.bold = True
-
-        doc.add_paragraph()
-        doc.add_heading("Leitura do achado principal", level=2)
-        top1 = top20.iloc[0]
-        doc.add_paragraph(
-            f"{top1['NOME'].title()} apresenta o maior índice de desalinhamento identificado "
-            f"(+{top1['indice_desalinhamento']:.1f}), com {int(top1['n_imoveis'])} imóveis na amostra. "
-            "Trata-se de um caso objetivo de subtributação relativa, a ser priorizado em eventual "
-            "revisão de zoneamento fiscal."
-        )
-
-    # --- 4. Achado 2 ---
-    doc.add_heading("4. Achado 2 — Índice de Descolamento IPTU × ITBI", level=1)
-    if cagr_iptu_val is not None and cagr_itbi_val is not None:
-        doc.add_paragraph(
-            f"Crescimento anual médio (CAGR): IPTU = {cagr_iptu_val*100:.1f}% ao ano; "
-            f"ITBI = {cagr_itbi_val*100:.1f}% ao ano."
-        )
-        diferenca = (cagr_itbi_val - cagr_iptu_val) * 100
-        if diferenca > 0.5:
-            doc.add_paragraph(
-                f"O ITBI cresce {diferenca:.1f} pontos percentuais ao ano mais rápido que o IPTU, "
-                "indício de defasagem crescente da base tributária frente ao mercado."
-            )
-        elif diferenca < -0.5:
-            doc.add_paragraph(
-                f"O IPTU cresce {-diferenca:.1f} pontos percentuais ao ano mais rápido que o ITBI — "
-                "a base tributária está acompanhando ou superando o mercado."
-            )
-        else:
-            doc.add_paragraph("IPTU e ITBI crescem em ritmo semelhante, sem sinal relevante de descolamento agregado.")
-    else:
-        doc.add_paragraph(
-            "Não foi possível calcular esta seção nesta execução — verifique se a série histórica "
-            "foi carregada corretamente mais acima no aplicativo."
-        )
-
-    # --- 5. Limitações ---
-    doc.add_heading("5. Limitações e Próximos Passos", level=1)
-    for b in [
-        f"A correspondência foi confirmada para {total_confirmados} das {total_lei} zonas/loteamentos listadas na lei; casos abaixo do limiar de confiança não foram classificados.",
-        "A análise utiliza dados de oferta (anúncios), não valores efetivos de transação ou valor venal individual por imóvel.",
-        "Bairros com amostra de mercado insuficiente foram excluídos da comparação estatística.",
-        "Recomenda-se validação conjunta com a Secretaria de Fazenda e ampliação com dados administrativos internos (valor venal por logradouro, padrão construtivo por imóvel).",
-    ]:
-        doc.add_paragraph(b, style="List Bullet")
-
-    # --- 6. Recomendações ---
-    doc.add_heading("6. Recomendações", level=1)
-    recomendacoes = [
-        "Instituir acompanhamento periódico do Índice de Descolamento IPTU × ITBI.",
-        "Padronizar identificador único de bairro/loteamento entre os sistemas tributário e cadastral.",
-        "Avaliar ampliação do diagnóstico com dados administrativos internos (valor venal individual, ITBI por transação).",
-    ]
-    if not classificados_rel.empty:
-        top5_nomes = ", ".join(classificados_rel.sort_values("indice_desalinhamento", ascending=False)["NOME"].str.title().head(5))
-        recomendacoes.insert(0, f"Priorizar a revisão de zoneamento fiscal dos bairros: {top5_nomes}.")
-    for b in recomendacoes:
-        doc.add_paragraph(b, style="List Bullet")
-
-    buffer = io.BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
-    return buffer
-
-
-# --- Botão que dispara a geração ---
-if st.button("📄 Gerar Relatório Técnico (Word)"):
-    with st.spinner("Montando o relatório..."):
-        cagr_iptu_atual = globals().get("cagr_iptu")
-        cagr_itbi_atual = globals().get("cagr_itbi")
-        buffer_relatorio = gerar_relatorio_docx(
-            indice_desalinhamento_por_bairro,
-            cagr_iptu_val=cagr_iptu_atual,
-            cagr_itbi_val=cagr_itbi_atual,
-        )
-    st.success("Relatório gerado com sucesso.")
-    st.download_button(
-        label="⬇️ Baixar Relatório (.docx)",
-        data=buffer_relatorio,
-        file_name=f"relatorio_diagnostico_maringa_{datetime.date.today().strftime('%Y%m%d')}.docx",
-        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    )
