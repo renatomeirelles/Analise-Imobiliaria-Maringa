@@ -416,10 +416,49 @@ def agregar_por_bairro(df_in, coluna, _gdf_bairros):
 
 CAMPOS_TOOLTIP_COROPLETICO = ("NOME", "media_fmt", "minimo_fmt", "maximo_fmt", "variacao_fmt", "qtd_fmt")
 
+# Unidade usada no mapa coroplético:
+#   "poligono" = cada polígono do shapefile é uma unidade própria (cor, número e destaque
+#                só dele). Multipolígonos são separados em partes.
+#   "nome"     = polígonos com o mesmo NOME são agrupados numa unidade só (comportamento antigo).
+UNIDADE_DO_MAPA = "poligono"
+
 
 @st.cache_data(show_spinner=False)
-def montar_geojson_coropletico(stats, _gdf_bairros, bins, sufixo):
-    gdf_plot = _gdf_bairros[["geometry", "NOME"]].merge(stats, on="NOME", how="left")
+def preparar_poligonos(_gdf_bairros):
+    """Separa multipolígonos em polígonos individuais, cada um com um poly_id próprio."""
+    g = _gdf_bairros[["geometry", "NOME"]].copy()
+    g = g.explode(index_parts=False).reset_index(drop=True)
+    g["poly_id"] = g.index.astype(int)
+    return g
+
+
+@st.cache_data(show_spinner=False)
+def agregar_por_poligono(df_in, coluna, _gdf_poligonos):
+    """Mesmas estatísticas de agregar_por_bairro, mas por polígono individual."""
+    gdf_imoveis = gpd.GeoDataFrame(
+        df_in,
+        geometry=gpd.points_from_xy(df_in["longitude"], df_in["latitude"]),
+        crs="EPSG:4326",
+    )
+    gdf_join = gpd.sjoin(
+        gdf_imoveis,
+        _gdf_poligonos[["geometry", "poly_id"]],
+        how="left",
+        predicate="within",
+    )
+    stats = gdf_join.dropna(subset=["poly_id"]).groupby("poly_id")[coluna].agg(
+        qtd="count", media="mean", minimo="min", maximo="max"
+    ).reset_index()
+    stats["poly_id"] = stats["poly_id"].astype(int)
+    media_municipio = df_in[coluna].mean()
+    stats["variacao"] = ((stats["media"] - media_municipio) / media_municipio) * 100
+    return stats.round(2)
+
+
+@st.cache_data(show_spinner=False)
+def montar_geojson_coropletico(stats, _gdf_unidades, chave, bins, sufixo):
+    colunas_base = ["geometry", "NOME"] if chave == "NOME" else ["geometry", "NOME", chave]
+    gdf_plot = _gdf_unidades[colunas_base].merge(stats, on=chave, how="left")
     gdf_plot["fill_color"] = gdf_plot["media"].apply(lambda v: cor_por_faixa(v, bins))
     gdf_plot["media_fmt"] = gdf_plot["media"].apply(lambda v: fmt_brl(v, sufixo=sufixo))
     gdf_plot["minimo_fmt"] = gdf_plot["minimo"].apply(lambda v: fmt_brl(v, sufixo=sufixo))
@@ -460,10 +499,18 @@ with col_map:
     tooltip = None
 
     if tipo_mapa == "Coroplético":
-        df_stats = agregar_por_bairro(
-            df_filtrado[["latitude", "longitude", coluna_valor]], coluna_valor, gdf_bairros
+        dados_stats = df_filtrado[["latitude", "longitude", coluna_valor]]
+        if UNIDADE_DO_MAPA == "poligono":
+            gdf_unidades = preparar_poligonos(gdf_bairros)
+            df_stats = agregar_por_poligono(dados_stats, coluna_valor, gdf_unidades)
+            chave_unidade = "poly_id"
+        else:
+            gdf_unidades = gdf_bairros
+            df_stats = agregar_por_bairro(dados_stats, coluna_valor, gdf_bairros)
+            chave_unidade = "NOME"
+        geojson = montar_geojson_coropletico(
+            df_stats, gdf_unidades, chave_unidade, tuple(bins), sufixo_unid
         )
-        geojson = montar_geojson_coropletico(df_stats, gdf_bairros, tuple(bins), sufixo_unid)
         layers.append(
             pdk.Layer(
                 "GeoJsonLayer",
@@ -475,6 +522,7 @@ with col_map:
                 line_width_min_pixels=1,
                 pickable=True,
                 auto_highlight=True,
+                highlight_color=[255, 255, 255, 70],
             )
         )
         # Tooltip do mapa (balão ao passar o mouse / tocar no bairro)
