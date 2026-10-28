@@ -193,7 +193,7 @@ ESTATISTICAS = [
     "Preço médio condomínios",
     "Preço médio por m² condomínios",
 ]
-TIPOS_MAPA = ["Coroplético", "Pontos", "Densidade 3D (hexbin)", "Calor", "Edifícios 3D (OSM)"]
+TIPOS_MAPA = ["Coroplético", "Cluster (LISA)", "Pontos", "Densidade 3D (hexbin)", "Calor", "Edifícios 3D (OSM)"]
 TIPOS_GRAFICO = ["Histograma", "Barras por bairro", "Boxplot por tipo"]
 
 with st.container(key="barra_filtros"):
@@ -480,6 +480,97 @@ def montar_geojson_coropletico(stats, _gdf_unidades, chave, bins, sufixo):
     return geojson
 
 
+# ---------- Cluster LISA (Moran Local) ----------
+# Parâmetros do artigo: vizinhança Queen, mínimo de 5 imóveis por bairro,
+# bairros-ilha (sem vizinhos) excluídos, 9.999 permutações, significância de 5%.
+LISA_MIN_IMOVEIS = 5
+LISA_PERMUTACOES = 9999
+LISA_SEED = 12345
+LISA_P_CORTE = 0.05
+
+ROTULOS_LISA = {1: "HH (alto-alto)", 2: "LH (baixo-alto)", 3: "LL (baixo-baixo)", 4: "HL (alto-baixo)"}
+COR_LISA = {
+    "HH (alto-alto)": [215, 25, 28, 210],
+    "LH (baixo-alto)": [253, 174, 97, 210],
+    "LL (baixo-baixo)": [43, 131, 186, 210],
+    "HL (alto-baixo)": [171, 221, 164, 210],
+    "Não significativo": [205, 205, 205, 110],
+    "Sem dados suficientes": [60, 60, 60, 120],
+}
+
+# Mapa de calor: False = HeatmapLayer (mancha de calor suave)
+#                True  = grade de hexágonos planos por densidade (alternativa mais compatível)
+CALOR_COMO_GRADE = False
+
+
+@st.cache_data(show_spinner=False)
+def bairros_unicos(_gdf_bairros):
+    """Uma linha por bairro (NOME), unindo as partes — unidade de análise do LISA."""
+    return _gdf_bairros[["NOME", "geometry"]].dissolve(by="NOME", as_index=False)
+
+
+@st.cache_data(show_spinner="Calculando clusters LISA...")
+def calcular_lisa(stats, _gdf_unicos, min_imoveis, permutacoes, seed):
+    from libpysal.weights import Queen
+    from esda.moran import Moran, Moran_Local
+
+    base = _gdf_unicos.merge(stats[["NOME", "qtd", "media"]], on="NOME", how="inner")
+    base = base[(base["qtd"] >= min_imoveis) & base["media"].notna()].reset_index(drop=True)
+    if base.crs is not None:
+        base = base.to_crs("EPSG:31983")
+
+    # Vizinhança Queen; bairros sem nenhum vizinho (ilhas) saem da análise
+    ilhas_nomes = []
+    while True:
+        if len(base) < 10:
+            raise ValueError("poucos bairros com dados suficientes nesta seleção")
+        w = Queen.from_dataframe(base)
+        if not w.islands:
+            break
+        ilhas_nomes += list(base.loc[list(w.islands), "NOME"])
+        base = base.drop(index=list(w.islands)).reset_index(drop=True)
+
+    w.transform = "r"
+    y = base["media"].to_numpy(dtype=float)
+    moran = Moran(y, w, permutations=permutacoes)
+    lisa = Moran_Local(y, w, permutations=permutacoes, seed=seed)
+
+    base["p"] = lisa.p_sim
+    base["cluster"] = [
+        ROTULOS_LISA[int(q)] if p < LISA_P_CORTE else "Não significativo"
+        for q, p in zip(lisa.q, lisa.p_sim)
+    ]
+    info = {
+        "moran_I": float(moran.I),
+        "moran_p": float(moran.p_sim),
+        "n": int(len(base)),
+        "ilhas": ilhas_nomes,
+    }
+    return base[["NOME", "qtd", "media", "p", "cluster"]].copy(), info
+
+
+@st.cache_data(show_spinner=False)
+def montar_geojson_lisa(stats, res, _gdf_unicos, sufixo):
+    gdf_plot = (
+        _gdf_unicos[["NOME", "geometry"]]
+        .merge(stats[["NOME", "qtd", "media"]], on="NOME", how="left")
+        .merge(res[["NOME", "p", "cluster"]], on="NOME", how="left")
+    )
+    gdf_plot["cluster"] = gdf_plot["cluster"].fillna("Sem dados suficientes")
+    gdf_plot["fill_color"] = gdf_plot["cluster"].apply(lambda c: COR_LISA[c])
+    gdf_plot["media_fmt"] = gdf_plot["media"].apply(lambda v: fmt_brl(v, sufixo=sufixo))
+    gdf_plot["qtd_fmt"] = gdf_plot["qtd"].apply(fmt_int)
+    gdf_plot["p_fmt"] = gdf_plot["p"].apply(lambda v: "—" if pd.isna(v) else _num_br(v, 4))
+    campos = ("NOME", "cluster", "media_fmt", "qtd_fmt", "p_fmt")
+    geojson = json.loads(
+        gdf_plot[["geometry", *campos, "fill_color"]].to_json()
+    )
+    for feat in geojson["features"]:
+        for campo in campos:
+            feat[campo] = feat["properties"].get(campo)
+    return geojson
+
+
 # =========================
 # BLOCO 8 — Mapa (pydeck / deck.gl) com tooltip
 # =========================
@@ -497,6 +588,7 @@ with col_map:
     bins = faixas_dict.get(estatistica_norm, faixas_base['preco'])
     layers = []
     tooltip = None
+    res_lisa = info_lisa = None
 
     if tipo_mapa == "Coroplético":
         dados_stats = df_filtrado[["latitude", "longitude", coluna_valor]]
@@ -537,6 +629,43 @@ with col_map:
             ),
             "style": {"backgroundColor": "#111111", "color": "white", "fontSize": "13px"},
         }
+
+    elif tipo_mapa == "Cluster (LISA)":
+        try:
+            gdf_unicos = bairros_unicos(gdf_bairros)
+            stats_lisa = agregar_por_bairro(
+                df_filtrado[["latitude", "longitude", coluna_valor]], coluna_valor, gdf_bairros
+            )
+            res_lisa, info_lisa = calcular_lisa(
+                stats_lisa, gdf_unicos, LISA_MIN_IMOVEIS, LISA_PERMUTACOES, LISA_SEED
+            )
+            geojson_lisa = montar_geojson_lisa(stats_lisa, res_lisa, gdf_unicos, sufixo_unid)
+            layers.append(
+                pdk.Layer(
+                    "GeoJsonLayer",
+                    geojson_lisa,
+                    stroked=True,
+                    filled=True,
+                    get_fill_color="properties.fill_color",
+                    get_line_color=[58, 58, 58],
+                    line_width_min_pixels=1,
+                    pickable=True,
+                    auto_highlight=True,
+                    highlight_color=[255, 255, 255, 70],
+                )
+            )
+            tooltip = {
+                "html": (
+                    "<b>{NOME}</b><br/>"
+                    "Cluster: {cluster}<br/>"
+                    "Média: {media_fmt}<br/>"
+                    "Imóveis: {qtd_fmt}<br/>"
+                    "p-valor: {p_fmt}"
+                ),
+                "style": {"backgroundColor": "#111111", "color": "white", "fontSize": "13px"},
+            }
+        except Exception as e:
+            st.warning(f"Não foi possível calcular o cluster LISA para esta seleção: {e}")
 
     elif tipo_mapa == "Pontos":
         # Envia ao navegador só as colunas necessárias (antes ia a planilha inteira)
@@ -705,23 +834,49 @@ with col_map:
             )
 
     elif tipo_mapa == "Calor":
-        dados_calor = df_filtrado[["longitude", "latitude", "valor_tooltip"]].dropna()
-        layers.append(
-            pdk.Layer(
-                "HeatmapLayer",
-                dados_calor,
-                get_position=["longitude", "latitude"],
-                get_weight="valor_tooltip",
-                radius_pixels=40,
+        # Calor por DENSIDADE de imóveis (como no notebook: só latitude/longitude).
+        # Antes cada ponto pesava o valor do imóvel (milhões de R$); somar pesos
+        # tão grandes estoura a precisão da GPU e o mapa de calor ficava em branco.
+        dados_calor = df_filtrado[["longitude", "latitude"]].dropna()
+        if CALOR_COMO_GRADE:
+            dados_h = dados_calor.copy()
+            dados_h["hex"] = [
+                h3.latlng_to_cell(lat, lon, 10)
+                for lat, lon in zip(dados_h["latitude"], dados_h["longitude"])
+            ]
+            grade = dados_h.groupby("hex").size().reset_index(name="qtd")
+            vmin_g, vmax_g = grade["qtd"].min(), grade["qtd"].max()
+            grade["fill_color"] = grade["qtd"].apply(lambda v: valor_para_cor_teal(v, vmin_g, vmax_g))
+            layers.append(
+                pdk.Layer(
+                    "H3HexagonLayer",
+                    grade,
+                    get_hexagon="hex",
+                    get_fill_color="fill_color",
+                    extruded=False,
+                    opacity=0.65,
+                )
             )
-        )
+        else:
+            layers.append(
+                pdk.Layer(
+                    "HeatmapLayer",
+                    dados_calor,
+                    get_position=["longitude", "latitude"],
+                    get_weight=1,
+                    radius_pixels=40,
+                    intensity=1,
+                    threshold=0.05,
+                    opacity=0.9,
+                )
+            )
 
     deck = pdk.Deck(
         layers=layers,
         initial_view_state=view_state,
         map_provider="carto",
         map_style="dark",
-        tooltip=tooltip,
+        tooltip=tooltip if tooltip else False,
     )
 
     # Renderização com o motor próprio do pydeck: o balão (tooltip) é desenhado
@@ -738,6 +893,26 @@ with col_map:
             st.pydeck_chart(deck, height=520)
     else:
         st.pydeck_chart(deck, height=520)
+
+    if tipo_mapa == "Cluster (LISA)" and info_lisa is not None:
+        contagem = res_lisa["cluster"].value_counts()
+        n_sem_dados = len(bairros_unicos(gdf_bairros)) - info_lisa["n"]
+        itens = ""
+        for nome, cor in COR_LISA.items():
+            qtd_cl = n_sem_dados if nome == "Sem dados suficientes" else int(contagem.get(nome, 0))
+            itens += (
+                '<span style="display:inline-block;margin:0 12px 4px 0;white-space:nowrap">'
+                f'<span style="display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:5px;'
+                f'vertical-align:middle;background:rgb({cor[0]},{cor[1]},{cor[2]})"></span>'
+                f'{escape(nome)} · {qtd_cl}</span>'
+            )
+        st.markdown(f'<div class="stat-pequena">{itens}</div>', unsafe_allow_html=True)
+        nota_ilhas = f" · ilhas excluídas: {', '.join(info_lisa['ilhas'])}" if info_lisa["ilhas"] else ""
+        st.caption(
+            f"I de Moran global = {_num_br(info_lisa['moran_I'], 3)} (p = {_num_br(info_lisa['moran_p'], 4)}) · "
+            f"{info_lisa['n']} bairros analisados (mín. {LISA_MIN_IMOVEIS} imóveis; vizinhança Queen; "
+            f"{fmt_int(LISA_PERMUTACOES)} permutações; significância de 5%){nota_ilhas}"
+        )
 
     # =========================
     # BLOCO 9 — Estatísticas resumidas abaixo do mapa

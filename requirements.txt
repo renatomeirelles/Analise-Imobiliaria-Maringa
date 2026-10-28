@@ -8,5 +8,7 @@ numpy
 geopandas>=0.14
 shapely
 openpyxl
+libpysal
+esda
 # osmnx foi removido: só era usado para buscar edifícios ao vivo no OpenStreetMap
 # (o app usa data/edificios_maringa.geojson). Se precisar da busca ao vivo, adicione "osmnx".
